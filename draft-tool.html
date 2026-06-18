@@ -1,0 +1,2648 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Draft Tool — KQF</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.hidden{display:none!important}
+:root{
+  --gold:#C89B3C;--gold-l:#F0E6D3;--gold-d:#78622A;
+  --dark:#010A13;--dark2:#0A1428;--dark3:#091428;
+  --blue:#0BC4E3;--blue-d:#1E3A5C;
+  --red:#C84B31;--red-d:#5C1E1E;
+  --green:#2ECC71;--yellow:#F39C12;--gray:#4A5568;--gray-l:#718096;
+}
+body{background:var(--dark);color:var(--gold-l);font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── HEADER ── */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 16px;background:var(--dark2);border-bottom:1px solid var(--gold-d);flex-shrink:0;gap:12px}
+.hdr-title{color:var(--gold);font-weight:700;font-size:15px;letter-spacing:3px;white-space:nowrap}
+
+/* ── MAIN TABS ── */
+.main-tabs{display:flex;gap:2px;background:var(--dark3);border-radius:6px;padding:3px}
+.main-tab{padding:5px 18px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:1px;color:var(--gray-l);transition:all .15s;white-space:nowrap}
+.main-tab:hover{color:var(--gold-l)}
+.main-tab.active{background:var(--dark2);color:var(--gold);box-shadow:0 0 0 1px var(--gold-d)}
+
+.hdr-actions{display:flex;align-items:center;gap:8px}
+.phase-badge{padding:4px 12px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1px;border:1px solid;white-space:nowrap}
+.phase-badge.ban{border-color:var(--red);color:var(--red);background:#C84B3115}
+.phase-badge.pick{border-color:var(--blue);color:var(--blue);background:#0BC4E315}
+.phase-badge.done{border-color:var(--green);color:var(--green);background:#2ECC7115}
+.btn{padding:4px 12px;border:1px solid var(--gold-d);background:transparent;color:var(--gold);border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;transition:all .15s;white-space:nowrap}
+.btn:hover{background:var(--gold-d)}
+.btn.danger{border-color:var(--red);color:var(--red)}
+.btn.danger:hover{background:var(--red-d)}
+
+/* ── ROSTER STRIP ── */
+#roster-strip{flex-shrink:0;border-bottom:1px solid var(--gold-d);background:var(--dark2);padding:8px 14px;gap:6px;align-items:center;flex-wrap:wrap;display:none}
+#roster-strip.visible{display:flex}
+.roster-label{font-size:9px;font-weight:700;letter-spacing:2px;color:var(--gold-d);text-transform:uppercase;margin-right:4px;white-space:nowrap}
+.player-card{display:flex;flex-direction:column;gap:3px;padding:6px 10px;border-radius:5px;border:1px solid var(--gold-d);background:var(--dark3);min-width:120px;position:relative}
+.player-card.active-player{border-color:var(--blue);background:#0BC4E308}
+.player-card.sub-card{border-color:var(--gold-d);border-style:dashed}
+.player-card.sub-card.active-player{border-color:var(--gold);border-style:solid;background:#C89B3C0A}
+.player-card.out{opacity:.38;border-style:dashed}
+.pc-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pc-name{font-weight:700;font-size:12px;color:var(--gold-l);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
+.pc-bottom{display:flex;align-items:center;gap:5px}
+.pc-role-badge{font-size:9px;font-weight:700;letter-spacing:1px;color:var(--blue);background:#0BC4E315;padding:1px 6px;border-radius:10px}
+.pc-role-badge.sub{color:var(--gold);background:#C89B3C15}
+.role-select{background:var(--dark2);border:1px solid var(--gold-d);color:var(--gold-l);border-radius:3px;padding:2px 4px;font-size:10px;cursor:pointer;max-width:90px}
+.toggle-btn{width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}
+.toggle-btn.on{background:var(--blue)}
+.toggle-btn.off{background:var(--gray)}
+.toggle-btn::after{content:'';position:absolute;width:12px;height:12px;border-radius:50%;background:white;top:2px;transition:left .2s}
+.toggle-btn.on::after{left:14px}
+.toggle-btn.off::after{left:2px}
+.sub-label{font-size:9px;color:var(--gold);font-weight:700;letter-spacing:1px}
+.pc-pool{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}
+.pc-pool-icon{width:24px;height:24px;border-radius:3px;overflow:hidden;border:1px solid var(--gold-d);position:relative;cursor:default}
+.pc-pool-icon img{width:100%;height:100%;object-fit:cover}
+.pc-pool-icon .pool-wr{position:absolute;bottom:0;left:0;right:0;background:#00000099;text-align:center;font-size:7px;color:var(--green);font-weight:700;line-height:10px}
+.pc-pool-icon .pool-wr.bad{color:#E87A65}
+.opgg-row{display:flex;align-items:center;gap:4px;margin-top:4px}
+.opgg-tag-input{background:var(--dark);border:1px solid var(--gold-d);color:var(--gold-l);border-radius:3px;padding:2px 4px;font-size:9px;width:44px;outline:none}
+.opgg-tag-input:focus{border-color:var(--blue)}
+.load-btn{padding:2px 7px;border:1px solid var(--blue);background:transparent;color:var(--blue);border-radius:3px;cursor:pointer;font-size:9px;font-weight:700;transition:all .15s;white-space:nowrap}
+.load-btn:hover{background:var(--blue);color:white}
+.load-btn.loading{border-color:var(--gray);color:var(--gray);pointer-events:none}
+.load-btn.done{border-color:var(--green);color:var(--green)}
+.load-btn.err{border-color:var(--red);color:var(--red)}
+.opgg-link{font-size:9px;color:var(--gold-d);text-decoration:none}
+.opgg-link:hover{color:var(--gold)}
+
+/* ── MAIN LAYOUT ── */
+.main{display:grid;grid-template-columns:280px 1fr 252px;gap:0;flex:1;overflow:hidden}
+
+/* ── PANELS ── */
+.panel{padding:11px;overflow-y:auto;border-right:1px solid var(--gold-d)}
+.panel:last-child{border-right:none;border-left:1px solid var(--gold-d)}
+.panel-title{font-size:10px;font-weight:700;letter-spacing:2px;color:var(--gold);text-transform:uppercase;margin-bottom:9px;padding-bottom:6px;border-bottom:1px solid var(--gold-d)}
+
+/* ── SUGGESTION TABS ── */
+.sug-tabs{display:flex;gap:5px;margin-bottom:9px}
+.sug-tab{padding:4px 12px;border-radius:4px;border:1px solid;cursor:pointer;font-size:10px;font-weight:700;letter-spacing:1px;transition:all .15s}
+.sug-tab.picks{border-color:var(--blue);color:var(--blue)}
+.sug-tab.picks.on{background:var(--blue);color:white}
+.sug-tab.bans{border-color:var(--red);color:var(--red)}
+.sug-tab.bans.on{background:var(--red);color:white}
+.sug-item{display:flex;flex-direction:column;gap:3px;padding:7px 9px;border-radius:4px;margin-bottom:5px;border:1px solid;cursor:pointer}
+.sug-item:hover{filter:brightness(1.25)}
+.sug-item.pick{background:#0BC4E308;border-color:#0BC4E328}
+.sug-item.ban{background:#C84B3108;border-color:#C84B3128}
+.sug-top{display:flex;align-items:center;gap:7px}
+.sug-num{color:var(--gold-d);font-size:11px;width:14px;text-align:center;flex-shrink:0}
+.sug-img{width:36px;height:36px;border-radius:3px;border:1px solid var(--gold-d);overflow:hidden;flex-shrink:0;background:var(--dark3)}
+.sug-img img{width:100%;height:100%;object-fit:cover}
+.sug-info{flex:1;min-width:0}
+.sug-name{font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--gold-l)}
+.sug-sub{font-size:10px;color:var(--blue)}
+.sug-sub.r{color:var(--red)}
+.sug-score{font-weight:700;font-size:14px}
+.sug-bars{display:flex;flex-direction:column;gap:1px;padding-left:21px}
+.bar-row{display:flex;align-items:center;gap:5px}
+.bar-lbl{color:var(--gray);font-size:9px;width:42px;flex-shrink:0}
+.bar-bg{flex:1;height:2px;background:#ffffff12;border-radius:1px;overflow:hidden}
+.bar-fill{height:100%;border-radius:1px}
+.bar-val{font-size:9px;color:var(--gray);width:24px;text-align:right}
+.sug-reason{font-size:11px;color:#B8C8E0;padding:4px 6px 2px 6px;line-height:1.45;background:#ffffff06;border-radius:3px;margin-top:3px}
+.sug-role-hdr{font-size:10px;color:var(--gray-l);letter-spacing:.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--gold-d)}
+.sug-role-hdr b{color:var(--gold)}
+.verdict-tag{font-size:8px;font-weight:700;letter-spacing:.5px;border:1px solid;border-radius:7px;padding:0 5px;margin-left:5px;vertical-align:middle}
+.chip-row{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;padding-left:21px}
+.chip{font-size:9px;font-weight:600;padding:1px 6px;border-radius:9px;border:1px solid;white-space:nowrap}
+.chip.pos{color:#7FE3A0;border-color:#2ECC7140;background:#2ECC7112}
+.chip.neg{color:#E8957A;border-color:#C84B3140;background:#C84B3112}
+.pro-stars{color:#F39C12;font-size:9px;letter-spacing:1px}
+/* ── DRAFT VERDICT / WIN CONS ── */
+.draft-verdict{padding:8px 10px;border-radius:5px;border:1px solid;font-size:11px;font-weight:600;line-height:1.5;margin-bottom:6px}
+.wc-block{padding:8px 10px;border-radius:4px;border:1px solid;margin-bottom:5px}
+.wc-block.b{border-color:#0BC4E328;background:#0BC4E308}
+.wc-block.r{border-color:#C84B3128;background:#C84B3108}
+.wc-lbl{font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--gray-l);text-transform:uppercase;margin-bottom:4px}
+.wc-item{font-size:10px;color:var(--gold-l);line-height:1.4;margin-bottom:2px}
+/* ── SLOT PICKER ── */
+#slot-picker{position:fixed;background:var(--dark2);border:1px solid var(--gold-d);border-radius:6px;padding:10px;z-index:500;box-shadow:0 4px 24px #00000080;min-width:200px}
+#slot-picker .sp-title{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--gold);margin-bottom:8px}
+.sp-row{display:flex;gap:4px;margin-bottom:4px}
+.sp-col{display:flex;flex-direction:column;gap:4px;margin-bottom:4px}
+.sp-col .sp-btn{text-align:left}
+.sp-btn{flex:1;padding:5px 4px;border-radius:3px;border:1px solid;cursor:pointer;font-size:10px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-btn.b{border-color:#0BC4E350;color:var(--blue);background:#0BC4E310}
+.sp-btn.b:hover{background:#0BC4E330}
+.sp-btn.r{border-color:#C84B3150;color:var(--red);background:#C84B3110}
+.sp-btn.r:hover{background:#C84B3130}
+.sp-cancel{width:100%;margin-top:4px;padding:4px;border:1px solid var(--gray);color:var(--gray);background:transparent;border-radius:3px;cursor:pointer;font-size:10px}
+/* ── SOLO BAR ── */
+#solo-bar{display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:8px;background:var(--dark2);border:1px solid var(--gold-d);border-radius:6px;flex-wrap:wrap}
+.solo-lbl{font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--gold)}
+#solo-role-sel{background:var(--dark);border:1px solid var(--gold-d);color:var(--gold-l);border-radius:4px;padding:4px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.solo-hint{font-size:10px;color:var(--gray-l);flex:1;min-width:160px}
+.solo-side-btn{padding:4px 12px;border-radius:4px;border:1px solid;background:transparent;cursor:pointer;font-size:11px;font-weight:700}
+.solo-side-btn.b{border-color:var(--blue);color:var(--blue)}
+.solo-side-btn.b.active{background:var(--blue);color:#021}
+.solo-side-btn.r{border-color:var(--red);color:var(--red)}
+.solo-side-btn.r.active{background:var(--red);color:#fff}
+.team-hdr{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:3px 0 6px;text-align:center}
+.team-hdr.b{color:var(--blue)} .team-hdr.r{color:var(--red)}
+.sug-item.best{border-color:var(--green);background:#2ECC7112;box-shadow:0 0 0 1px #2ECC7140}
+.best-badge{font-size:8px;font-weight:700;letter-spacing:1px;color:#021;background:var(--green);padding:1px 6px;border-radius:8px;margin-left:6px}
+/* ── HISTORY MODAL ── */
+#history-modal{position:fixed;inset:0;background:#000000CC;z-index:999;display:flex;align-items:center;justify-content:center}
+.hist-box{background:var(--dark2);border:1px solid var(--gold-d);border-radius:8px;width:560px;max-width:95vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden}
+.hist-box-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--gold-d)}
+.hist-box-hdr h3{color:var(--gold);font-size:13px;letter-spacing:2px}
+.hist-content{padding:16px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px}
+.hist-save-btns{display:flex;gap:10px;margin-top:8px}
+.hist-win-btn{padding:10px 24px;background:#27AE6022;border:1px solid var(--green);color:var(--green);border-radius:4px;cursor:pointer;font-weight:700;font-size:13px;flex:1}
+.hist-win-btn:hover{background:#27AE6044}
+.hist-loss-btn{padding:10px 24px;background:#C84B3122;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;font-weight:700;font-size:13px;flex:1}
+.hist-loss-btn:hover{background:#C84B3144}
+.hist-skip-btn{padding:10px 16px;background:transparent;border:1px solid var(--gray);color:var(--gray);border-radius:4px;cursor:pointer;font-size:12px}
+.hist-skip-btn:hover{background:#ffffff10}
+.hist-entry{padding:10px 12px;border:1px solid #ffffff18;border-radius:5px;background:#ffffff04;display:flex;flex-direction:column;gap:3px}
+.hist-header{display:flex;align-items:center;gap:8px}
+.hist-date{color:var(--gray);font-size:10px}
+.hist-res{font-weight:700;font-size:13px}
+.hist-side{font-size:11px;color:var(--gold-l)}
+.hist-side.b::before{content:'Blue: ';color:var(--blue);font-size:10px}
+.hist-side.r::before{content:'Red: ';color:var(--red);font-size:10px}
+.hist-mode{font-size:8px;font-weight:700;letter-spacing:1px;color:var(--gold-d);border:1px solid var(--gold-d);border-radius:3px;padding:1px 5px}
+.hist-line{font-size:11px;color:var(--gold-l);display:flex;gap:6px;align-items:baseline}
+.hist-tag{font-size:8px;font-weight:700;letter-spacing:.5px;padding:1px 6px;border-radius:10px;flex-shrink:0;text-transform:uppercase}
+.hist-tag.b{background:#0BC4E318;color:var(--blue)}
+.hist-tag.r{background:#C84B3118;color:#E87A65}
+.hist-tag.ban{background:#4A556830;color:var(--gray-l)}
+.hist-ustag{font-size:7px;background:var(--gold);color:var(--dark);padding:0 3px;border-radius:2px;margin-left:3px;vertical-align:middle}
+.hist-order{margin-top:2px}
+.hist-order summary{font-size:10px;color:var(--gold);cursor:pointer;outline:none}
+.seq-flow{display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-top:5px}
+.seq-step{font-size:9px;padding:2px 6px;border-radius:3px;white-space:nowrap}
+.seq-step.b{background:#0BC4E315;color:var(--blue);border:1px solid #0BC4E330}
+.seq-step.r{background:#C84B3115;color:#E87A65;border:1px solid #C84B3130}
+.seq-arrow{color:var(--gray);font-size:9px}
+.hist-notes{font-size:10px;color:var(--gray);font-style:italic}
+textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px solid var(--gold-d);color:var(--gold-l);border-radius:4px;padding:6px 8px;font-size:11px;resize:none;outline:none;font-family:inherit}
+
+/* ── BOARD ── */
+.board{display:flex;flex-direction:column;overflow-y:auto}
+.teams-row{display:grid;grid-template-columns:1fr auto 1fr;gap:0;padding:10px;flex-shrink:0}
+.vs-col{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10px;gap:4px}
+.vs-line{width:1px;flex:1;background:linear-gradient(to bottom,transparent,var(--gold-d),transparent)}
+.vs-text{color:var(--gold-d);font-size:10px;font-weight:700}
+.team-col{display:flex;flex-direction:column;gap:4px}
+.ban-row{display:flex;gap:3px;margin-bottom:5px}
+.ban-slot{width:33px;height:33px;border-radius:3px;border:1px dashed #ffffff18;background:var(--dark3);overflow:hidden;flex-shrink:0}
+.ban-slot img{width:100%;height:100%;object-fit:cover;filter:grayscale(1);opacity:.55}
+.ban-slot.empty{display:flex;align-items:center;justify-content:center;color:#ffffff15;font-size:13px}
+.ban-slot.active{border-color:var(--red);box-shadow:0 0 6px #C84B3144;animation:glow-r .8s infinite alternate}
+.player-row{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:4px;border:1px solid;position:relative;cursor:default}
+.player-row.blue{border-color:#0BC4E328;background:#0BC4E308}
+.player-row.red{border-color:#C84B3128;background:#C84B3108;flex-direction:row-reverse;text-align:right}
+.player-row.active-pick{box-shadow:0 0 0 2px var(--blue);animation:glow-b .8s infinite alternate}
+.player-row.active-ban{box-shadow:0 0 0 2px var(--red)}
+.pick-portrait{width:42px;height:42px;border-radius:4px;border:1px solid var(--gold-d);overflow:hidden;flex-shrink:0;background:var(--dark3);display:flex;align-items:center;justify-content:center;color:var(--gray);font-size:20px}
+.pick-portrait img{width:100%;height:100%;object-fit:cover}
+.player-info{flex:1;min-width:0}
+.player-name{font-weight:600;font-size:13px;color:var(--gold-l);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-name input{background:transparent;border:none;outline:none;color:var(--gold-l);font-weight:600;font-size:13px;width:100%}
+.player-rank-txt{font-size:10px}
+.player-rank-txt.b{color:var(--blue)}
+.player-rank-txt.r{color:var(--red)}
+.champ-label{font-size:10px;color:var(--gray)}
+.role-tag{font-size:9px;font-weight:700;letter-spacing:1px;padding:1px 5px;border-radius:10px;background:#0BC4E315;color:var(--blue)}
+.role-tag.r{background:#C84B3115;color:#E87A65}
+.row-btns{position:absolute;top:2px;right:2px;display:none;gap:3px}
+.player-row:hover .row-btns{display:flex}
+.clear-pick{width:15px;height:15px;border-radius:50%;background:#ffffff15;border:none;color:#ffffff88;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.move-pick{width:15px;height:15px;border-radius:50%;background:#C89B3C22;border:none;color:var(--gold);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+.move-pick:hover{background:var(--gold);color:var(--dark)}
+.clear-pick:hover{background:#C84B3155;color:#fff}
+
+/* ── CHAMPION GRID ── */
+.champ-search-row{display:flex;gap:5px;padding:8px 10px;flex-shrink:0;background:var(--dark2);border-bottom:1px solid var(--gold-d)}
+.champ-search{flex:1;padding:5px 9px;background:var(--dark3);border:1px solid var(--gold-d);color:var(--gold-l);border-radius:4px;font-size:12px;outline:none}
+.champ-search:focus{border-color:var(--blue)}
+.role-filter{display:flex;gap:2px}
+.role-btn{padding:3px 8px;border:1px solid var(--gold-d);background:transparent;color:var(--gray);border-radius:4px;cursor:pointer;font-size:10px;font-weight:700;transition:all .15s}
+.role-btn.active{border-color:var(--blue);color:var(--blue);background:#0BC4E315}
+.champ-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(50px,1fr));gap:3px;padding:8px;overflow-y:auto;flex:1;align-content:start}
+.champ-tile{display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;border-radius:4px;padding:3px;border:1px solid transparent;transition:all .1s}
+.champ-tile:hover{border-color:var(--gold);background:#C89B3C18}
+.champ-tile.used{opacity:.2;pointer-events:none}
+.champ-tile img{width:46px;height:46px;border-radius:3px;object-fit:cover;border:1px solid var(--gold-d)}
+.champ-tile-name{font-size:8px;color:var(--gray);text-align:center;width:50px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.champ-tile.suggest-s img{border-color:var(--gold);box-shadow:0 0 5px #C89B3C66}
+.champ-tile.suggest-a img{border-color:var(--green);box-shadow:0 0 3px #2ECC7144}
+.champ-tile.suggest-ban img{border-color:var(--red);box-shadow:0 0 3px #C84B3144}
+
+/* ── COMP PANEL ── */
+.comp-block{border-radius:5px;padding:9px;border:1px solid;margin-bottom:8px}
+.comp-block.b{border-color:#0BC4E328;background:#0BC4E308}
+.comp-block.r{border-color:#C84B3128;background:#C84B3108}
+.comp-lbl{font-size:9px;font-weight:700;letter-spacing:2px;margin-bottom:6px}
+.comp-lbl.b{color:var(--blue)}
+.comp-lbl.r{color:var(--red)}
+.tags-row{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
+.tag{padding:2px 6px;border-radius:20px;font-size:9px;font-weight:600}
+.tag.b{background:#0BC4E320;color:var(--blue)}
+.tag.r{background:#C84B3120;color:#E87A65}
+.arch-badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;color:white;margin-left:6px;vertical-align:middle}
+/* Detailed comp — damage split + stat grid */
+.dmg-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.dmg-lbl{font-size:9px;font-weight:700;letter-spacing:1px;color:var(--gray-l);width:46px;flex-shrink:0}
+.dmg-bar{flex:1;display:flex;height:16px;border-radius:3px;overflow:hidden;border:1px solid var(--gold-d);background:var(--dark3)}
+.dmg-ad{background:linear-gradient(90deg,#E6913C,#C8763C);color:#1a0f02;font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;white-space:nowrap;min-width:0}
+.dmg-ap{background:linear-gradient(90deg,#3DAEE6,#2E7FC8);color:#02101a;font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;white-space:nowrap;min-width:0}
+.comp-warn{font-size:9px;color:#E87A65;background:#C84B3112;border:1px solid #C84B3130;border-radius:3px;padding:3px 6px;margin-bottom:5px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px}
+.stat-cell{display:flex;flex-direction:column;align-items:center;gap:1px;background:var(--dark3);border:1px solid var(--gold-d);border-radius:3px;padding:3px 2px}
+.stat-k{font-size:8px;font-weight:700;letter-spacing:.5px;color:var(--gray-l);text-transform:uppercase}
+.stat-v{font-size:10px;font-weight:800}
+.warn-item{display:flex;gap:5px;padding:6px 8px;border:1px solid #F39C1240;background:#F39C1208;border-radius:4px;margin-bottom:4px}
+.warn-icon{color:var(--yellow);font-size:11px;flex-shrink:0}
+.warn-txt{color:#F8E9B0;font-size:10px;line-height:1.4}
+
+/* ── BAN MODE SELECTOR ── */
+#ban-mode-bar{display:none;align-items:center;gap:8px;padding:7px 14px;background:var(--dark2);border-bottom:1px solid var(--gold-d);flex-shrink:0}
+#ban-mode-bar.visible{display:flex}
+.ban-side-btn{padding:5px 16px;border-radius:4px;border:1px solid;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:1px;transition:all .15s;background:transparent}
+.ban-side-btn.blue{border-color:var(--red);color:var(--red)}
+.ban-side-btn.blue.active{background:var(--red);color:white}
+.ban-side-btn.red{border-color:var(--red);color:var(--red)}
+.ban-side-btn.red.active{background:var(--red);color:white}
+.ban-mode-hint{color:var(--gray);font-size:11px;margin-left:6px}
+.ban-count{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:2px}
+.ban-count.blue{background:#0BC4E315;color:var(--blue)}
+.ban-count.red{background:#C84B3115;color:#E87A65}
+/* ── OUR SIDE SELECT (flex / ranked5) ── */
+.side-select{display:flex;align-items:center;gap:5px;margin-right:10px;padding-right:12px;border-right:1px solid var(--gold-d)}
+.side-btn{padding:4px 14px;border-radius:4px;border:1px solid;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:1px;background:transparent;transition:all .15s;white-space:nowrap}
+.side-btn.blue{border-color:var(--blue);color:var(--blue)}
+.side-btn.blue.active{background:var(--blue);color:white}
+.side-btn.red{border-color:var(--red);color:#E87A65}
+.side-btn.red.active{background:var(--red);color:white}
+.side-btn:not(.active):hover{filter:brightness(1.3)}
+.bans-toggle-row{display:flex;align-items:center;gap:6px}
+.bans-toggle-lbl{font-size:10px;color:var(--gray-l);font-weight:600;letter-spacing:1px}
+.ban-slot-x{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:var(--red);border:none;color:white;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:2;line-height:1}
+.ban-slot:hover .ban-slot-x{display:flex}
+
+/* ── MISC ── */
+.empty-msg{color:var(--gray);font-size:11px;text-align:center;padding:12px 0}
+#loading{position:fixed;inset:0;background:var(--dark);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:99}
+#loading-text{color:var(--gold);letter-spacing:2px;font-size:14px}
+.spinner{width:38px;height:38px;border:3px solid var(--gold-d);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes glow-b{from{box-shadow:0 0 0 2px #0BC4E355}to{box-shadow:0 0 0 3px var(--blue)}}
+@keyframes glow-r{from{box-shadow:0 0 0 2px #C84B3155}to{box-shadow:0 0 0 3px var(--red)}}
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><div id="loading-text">LOADING CHAMPIONS...</div></div>
+
+<!-- HEADER -->
+<div class="hdr">
+  <span class="hdr-title">DRAFT TOOL</span>
+  <div class="main-tabs">
+    <div class="main-tab active" onclick="switchMainTab('solo')">Solo Queue</div>
+    <div class="main-tab" onclick="switchMainTab('flex')">Flex Queue</div>
+    <div class="main-tab" onclick="switchMainTab('ranked5')">Ranked 5's</div>
+  </div>
+  <div class="hdr-actions">
+    <span id="phase-badge" class="phase-badge ban">BAN PHASE 1</span>
+    <span id="turn-lbl" style="color:var(--gray);font-size:10px;min-width:100px;display:flex;align-items:center;gap:6px"></span>
+    <button id="history-btn" class="btn hidden" style="font-size:10px;padding:3px 10px" onclick="openHistory()">📋 History</button>
+    <div class="bans-toggle-row" id="bans-toggle-row">
+      <span class="bans-toggle-lbl">BANS</span>
+      <div class="toggle-btn off" id="bans-toggle" onclick="toggleBans()" title="Toggle bans on/off"></div>
+    </div>
+    <button class="btn" onclick="undoLast()">↩ Undo</button>
+    <button class="btn primary hidden" id="save-draft-hdr" onclick="openSaveDraft()" style="font-size:10px;padding:4px 10px">💾 Save Draft</button>
+    <button class="btn danger" onclick="resetDraft()">Reset</button>
+  </div>
+</div>
+
+<!-- BAN MODE BAR (Solo/Flex with bans on) -->
+<div id="ban-mode-bar">
+  <span style="color:var(--red);font-size:10px;font-weight:700;letter-spacing:1px">BAN FILL</span>
+  <button class="ban-side-btn blue" id="bsb-blue" onclick="setBanSide('blue')">BLUE BANS <span class="ban-count blue" id="bc-blue">0/5</span></button>
+  <button class="ban-side-btn red"  id="bsb-red"  onclick="setBanSide('red')">RED BANS <span class="ban-count red"  id="bc-red">0/5</span></button>
+  <span class="ban-mode-hint" id="ban-mode-hint">Select a side, then click champions to ban</span>
+</div>
+
+<!-- ROSTER STRIP (Ranked 5's + Flex) -->
+<div id="roster-strip">
+  <div class="side-select" id="side-select">
+    <span class="roster-label">Our side</span>
+    <button class="side-btn blue active" id="side-blue" onclick="setMySide('blue')">Blue</button>
+    <button class="side-btn red" id="side-red" onclick="setMySide('red')">Red</button>
+  </div>
+  <span class="roster-label">Roster</span>
+  <div id="roster-cards"></div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- Left: Suggestions -->
+  <div class="panel">
+    <div class="panel-title">Suggestions</div>
+    <div class="sug-tabs hidden" id="sug-tabs">
+      <div class="sug-tab picks on" id="tab-picks" onclick="setSugTab('picks')">Picks</div>
+      <div class="sug-tab bans" id="tab-bans" onclick="setSugTab('bans')">Bans</div>
+    </div>
+    <div id="sug-list"></div>
+  </div>
+
+  <!-- Center: Board + Grid -->
+  <div class="board">
+    <div id="solo-bar" class="hidden">
+      <span class="solo-lbl">YOUR ROLE</span>
+      <select id="solo-role-sel" onchange="setSoloRole(this.value)">
+        <option value="top">Top</option>
+        <option value="jungle">Jungle</option>
+        <option value="mid">Mid</option>
+        <option value="adc" selected>ADC</option>
+        <option value="support">Support</option>
+      </select>
+      <span class="solo-lbl" style="margin-left:6px">ADDING TO</span>
+      <button class="solo-side-btn b" id="ssb-blue" onclick="setSoloSide('blue')">Your Team</button>
+      <button class="solo-side-btn r active" id="ssb-red" onclick="setSoloSide('red')">Enemy</button>
+      <span class="solo-hint">Pick a side, then click champions as they're drafted. Suggestions re-rank live after every pick. Click ✕ on a pick to remove it.</span>
+    </div>
+    <div class="teams-row">
+      <div class="team-col" id="blue-col"></div>
+      <div class="vs-col">
+        <div class="vs-line"></div><span class="vs-text">VS</span><div class="vs-line"></div>
+      </div>
+      <div class="team-col" id="red-col"></div>
+    </div>
+    <div class="champ-search-row">
+      <input class="champ-search" id="champ-search" placeholder="Search champion..." oninput="filterGrid()"/>
+      <div class="role-filter">
+        <button class="role-btn active" onclick="setRole('')" id="rf-all">All</button>
+        <button class="role-btn" onclick="setRole('Fighter')" id="rf-Fighter">Top</button>
+        <button class="role-btn" onclick="setRole('Jungle')" id="rf-Jungle">Jng</button>
+        <button class="role-btn" onclick="setRole('Mage')" id="rf-Mage">Mid</button>
+        <button class="role-btn" onclick="setRole('Marksman')" id="rf-Marksman">ADC</button>
+        <button class="role-btn" onclick="setRole('Support')" id="rf-Support">Sup</button>
+      </div>
+    </div>
+    <div class="champ-grid" id="champ-grid"></div>
+  </div>
+
+  <!-- Right: Comp -->
+  <div class="panel">
+    <div class="panel-title">Comp Analysis</div>
+    <div id="comp-blue"></div>
+    <div id="comp-red"></div>
+    <div id="comp-warnings" style="margin-top:6px"></div>
+  </div>
+</div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────
+// name = lowercase key for seed/cache/API lookups; display = proper Riot ID
+// casing shown in the UI (e.g. "StyIebender" reads as "Stylebender").
+const KQF_ROSTER = [
+  { name:'thedrunkofrivia', display:'TheDrunkOfRivia', defaultRole:'top',     isSub:false, opggTag:'NA1'   },
+  { name:'teemoboy2011',    display:'Teemoboy2011',    defaultRole:'jungle',  isSub:false, opggTag:'Smile' },
+  { name:'styiebender',     display:'StyIebender',     defaultRole:'mid',     isSub:false, opggTag:'NA1'   },
+  { name:'monkeydadam',     display:'MonkeyDAdam',     defaultRole:'adc',     isSub:false, opggTag:'NA1'   },
+  { name:'yoitssam',        display:'YoitsSam',        defaultRole:'support', isSub:false, opggTag:'NA1'   },
+  { name:'lp fisherman',    display:'LP Fisherman',    defaultRole:'sub',     isSub:true,  opggTag:'NA1'   },
+]
+
+// Baseline champion pools fetched from each player's OP.GG (Season 2026).
+// Shown immediately so the roster is never empty; a live refresh enhances
+// these when the CORS proxy is reachable (OP.GG's API often blocks proxies).
+// {championId:[games, wins, winRate]}  — keyed by exact roster name.
+const SEED_POOLS = {
+  'thedrunkofrivia': [ [98,19,10,50],[113,4,2,57],[516,3,2,50],[111,3,2,75] ],
+  'teemoboy2011':    [ [60,64,44,69],[111,22,15,68],[59,17,8,47],[104,11,4,36],[20,10,3,30] ],
+  'styiebender':     [ [41,12,5,42],[54,5,3,60],[3,3,3,100],[79,3,2,67],[103,2,1,50] ],
+  'monkeydadam':     [ [21,58,37,64],[222,30,17,56],[115,5,2,38],[15,3,1,30],[145,3,2,60] ],
+  'yoitssam':        [ [412,13,8,59],[201,6,5,75],[53,5,3,56],[111,5,2,38],[518,5,5,100],[89,2,1,33] ],
+  'lp fisherman':    [ [901,67,28,42],[57,42,23,55],[526,16,9,56],[115,13,7,54],[910,10,7,70] ],
+}
+function seedPoolFor(name) {
+  const rows = SEED_POOLS[name.toLowerCase()]
+  if (!rows) return []
+  return rows.map(([championId, games, wins, winRate]) =>
+    ({ championId, games, wins, winRate, seeded:true }))
+}
+
+const OPGG_API  = 'https://lol-web-api.op.gg/api/v1.0/internal/bypass'
+const CORS_PROXY = 'https://api.allorigins.win/raw?url='
+const ROLES = ['top','jungle','mid','adc','support']
+const ROLE_LABELS = { top:'Top', jungle:'Jng', mid:'Mid', adc:'ADC', support:'Sup', sub:'Sub' }
+const TIER_SCORES = [1,0.85,0.7,0.55,0.4]
+// What each tag beats in direct matchup (used for counter scoring)
+const TAG_BEATS = {
+  Tank:     ['Assassin','Mage'],
+  Fighter:  ['Marksman','Tank'],
+  Mage:     ['Tank','Fighter'],
+  Assassin: ['Mage','Marksman','Support'],
+  Marksman: ['Tank','Fighter'],
+  Support:  ['Assassin'],
+}
+
+// Curated, high-confidence champion-vs-champion counters: championId → list of
+// enemy championIds it is notably strong into. These are relatively patch-stable
+// matchup facts (kit-driven), layered on top of the class-based TAG_BEATS to
+// sharpen counter scoring and let reasons name the specific champion.
+// Focused on the champions our roster actually plays.
+const COUNTERS = {
+  54:  [157,777,23,92,39,164,238,91,67,119,360,24],  // Malphite → AD/AA carries & AD assassins (Yasuo,Yone,Tryndamere,Riven,Irelia,Camille,Zed,Talon,Vayne,Draven,Samira,Jax)
+  3:   [157,238,91,84,7,55,105,777],                 // Galio → AP assassins/burst mids (Yasuo,Zed,Talon,Akali,LeBlanc,Katarina,Fizz,Yone)
+  79:  [238,91,84,7,55],                             // Gragas → melee assassins (tanky, displaces)
+  103: [38,115,136],                                 // Ahri → immobile/scaling mids she can roam on
+  98:  [23,114,24],                                  // Shen → splitpush duelists (global pressure)
+  111: [51,81,222,145],                              // Nautilus → immobile ADCs (lockdown)
+  412: [51,81,99,103],                               // Thresh → immobile backline (hook/lantern)
+  53:  [51,81,99,7],                                 // Blitzcrank → squishy immobile targets (hook)
+  89:  [51,81,222,99],                               // Leona → immobile carries (lockdown)
+  201: [119,67,51,22,18],                            // Braum → auto-attack ADCs (Draven,Vayne,Cait,Ashe,Tristana)
+  57:  [157,92,39,238,24],                           // Maokai → divers/engage (anti-dive CC)
+  59:  [64,121,141],                                 // Jarvan IV → mobile junglers (knockup lockdown)
+  60:  [64,141,234],                                 // Elise → early-weak junglers (early invade/gank)
+}
+function countersNamed(champId, enemyPicks) {
+  const list = COUNTERS[champId] || []
+  return [...new Set(enemyPicks.filter(id => list.includes(id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
+}
+
+// AD/AP damage classification — overrides where champion tags are ambiguous.
+// Lets the engine enforce the pro principle of balanced AD/AP damage.
+const DMG = {
+  54:'AP',57:'AP',3:'AP',79:'AP',84:'AP',105:'AP',245:'AP',131:'AP',10:'AP',887:'AP',
+  68:'AP',82:'AP',85:'AP',9:'AP',32:'AP',154:'AP',113:'AP',28:'AP',8:'AP',69:'AP',
+  50:'AP',127:'AP',60:'AP',518:'AP',
+  238:'AD',91:'AD',121:'AD',107:'AD',555:'AD',246:'AD',
+}
+function dmgType(c) {
+  if (!c) return 'mixed'
+  if (DMG[c.id]) return DMG[c.id]
+  if (c.tags.includes('Marksman')) return 'AD'
+  if (c.tags.includes('Mage')) return 'AP'
+  if (c.tags.includes('Fighter')) return 'AD'
+  return 'mixed'
+}
+// Teamfight roles (curated, kit-driven) for pro-style composition logic.
+const ENGAGE  = new Set([54,111,89,412,113,154,57,59,32,526,516,79,3,53,72,12,33,154])  // hard CC initiators
+const PEEL    = new Set([117,40,201,43,902,888,223,16,267,350,37])                       // enchanters / guardians
+const POKE    = new Set([115,101,161,126,110,51,142,99,910,8,134])                        // long-range siege
+const SCALING = new Set([222,145,523,38,45,10,901,75,235,67,134])                         // hypercarries / scaling
+function teamHas(picks, set) { return picks.some(id => set.has(id)) }
+// Reliable hard-CC / lockdown
+const CC = new Set([412,89,111,53,526,201,54,113,154,57,59,3,32,99,161,90,127,131,79,12,33,72,143,25])
+// Safe to pick early / blind (flexible or hard to hard-counter)
+const BLIND = new Set([54,98,516,113,3,111,412,201,57,60,222,21,103,79,89,517,113])
+// Curated synergies: championId → ally championIds it pairs especially well with
+const SYN = {
+  21:[89,111,32,412],          // Miss Fortune ult ↔ lockdown engage
+  222:[412,117,89,201,40],     // Jinx ↔ peel / engage
+  145:[89,111,526,412],        // Kai'Sa ↔ dive-enabling engage
+  901:[117,201,40,89],         // Smolder ↔ peel / protect
+  103:[59,154,120],            // Ahri ↔ dive follow-up
+  54:[157,61,85],              // Malphite ↔ AoE follow-up
+  412:[222,119,360,523,145],   // Thresh ↔ aggressive ADCs
+  89:[222,145,18,119,236],     // Leona ↔ dive ADCs
+  111:[222,145,360,119],       // Nautilus ↔ engage ADCs
+  53:[51,202,22],              // Blitzcrank ↔ pick-comp ADCs
+  201:[119,22,29,67],          // Braum ↔ auto-attack ADCs
+  526:[523,222,145],           // Rell ↔ multi-target ADCs
+  57:[59,154,120,61],          // Maokai ↔ dive
+  59:[61,103,157],             // Jarvan IV ↔ AoE follow-up
+  60:[61,103],                 // Elise ↔ early-game snowball mids
+}
+function synergyNames(champId, allyPicks) {
+  const list = SYN[champId] || []
+  return [...new Set(allyPicks.filter(id => list.includes(id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
+}
+function counteredByNames(champId, enemyPicks) {
+  return [...new Set(enemyPicks.filter(e => (COUNTERS[e] || []).includes(champId)).map(e => CHAMPS[e]?.name).filter(Boolean))]
+}
+function synergyScore(champId, allyPicks) {
+  return allyPicks.length ? Math.min(1, synergyNames(champId, allyPicks).length * 0.5) : 0
+}
+
+// ── Current-patch solo-queue data (OP.GG, Emerald+) ─────────────────────────
+// Per champion DISPLAY NAME → { role: [winRate, pickRate|null] }. Drives the
+// patch-meta signal and which roles a champion is currently viable in.
+// Refreshable: re-pull from op.gg/lol/champions?position=<role> on a new patch.
+const PATCH = '26.12'
+const PATCH_DATA = {
+  // MID
+  Sylas:{mid:[50.71,8.83],jungle:[50.21,null]}, Ahri:{mid:[50.78,10.03]}, Fizz:{mid:[51.74,5.68]},
+  Syndra:{mid:[51.15,7.35]}, Katarina:{mid:[50.99,7.12]}, Xerath:{mid:[51.4,5.26]},
+  Viktor:{mid:[49.97,9.79]}, Hwei:{mid:[51.01,6.14]}, Vladimir:{mid:[51.35,4.69]},
+  'Twisted Fate':{mid:[51.08,5.41]}, Lissandra:{mid:[50.86,5.01]}, Diana:{mid:[50.94,4.3]},
+  Zed:{mid:[49.45,7.41]}, Vex:{mid:[51.81,2.47]}, Malzahar:{mid:[49.8,5.81]},
+  // JUNGLE (pick rate not exposed on the list page → null)
+  Nasus:{jungle:[52.72,null],top:[51.0,null]}, "Rek'Sai":{jungle:[52.68,null]}, Shyvana:{jungle:[51.22,null]},
+  'Wukong':{jungle:[51.56,null],top:[50.5,null]}, "Bel'Veth":{jungle:[51.8,null]}, Warwick:{jungle:[51.52,null]},
+  Briar:{jungle:[50.98,null]}, Rammus:{jungle:[51.44,null]}, Udyr:{jungle:[51.2,null]},
+  Taliyah:{jungle:[51.36,null]}, Zyra:{jungle:[51.34,null],support:[50.5,null]}, Nocturne:{jungle:[50.93,null]},
+  Naafiri:{jungle:[50.35,null],mid:[50.0,null]},
+  // TOP
+  Garen:{top:[51.29,8.2]}, Malphite:{top:[50.97,6.99]}, Ornn:{top:[51.48,4.17]}, Shen:{top:[51.35,3.79]},
+  Sett:{top:[50.81,4.87]}, Aatrox:{top:[50.16,6.65]}, Gangplank:{top:[50.44,5.44]}, Kayle:{top:[51.7,2.64]},
+  Sion:{top:[50.33,5.75]}, Jax:{top:[50.1,5.87]}, Darius:{top:[49.87,6.68],jungle:[51.19,null]},
+  Yone:{top:[49.82,6.84],mid:[49.8,null]}, Tryndamere:{top:[51.12,3.13]}, Teemo:{top:[50.44,4.25]},
+  Olaf:{top:[51.35,2.56],jungle:[51.0,null]}, Urgot:{top:[51.43,2.41]}, Singed:{top:[51.27,2.54]},
+  Irelia:{top:[50.05,4.31],mid:[49.5,null]},
+  // ADC
+  Senna:{adc:[54.61,18.77],support:[51.8,6.92]}, Jinx:{adc:[51.38,11.39]}, Ashe:{adc:[50.52,11.38]},
+  Caitlyn:{adc:[48.88,15.27]}, Jhin:{adc:[48.99,14.96]}, Seraphine:{adc:[53.62,1.67],support:[51.39,10.9]},
+  Tristana:{adc:[50.45,6.5]}, Brand:{adc:[51.75,2.94],support:[50.5,null]}, Twitch:{adc:[50.53,4.85]},
+  Smolder:{adc:[49.58,6.33]}, Ezreal:{adc:[47.19,16.43]}, Xayah:{adc:[50.96,3.63]},
+  "Kai'Sa":{adc:[48.07,12.04]}, Lucian:{adc:[48.98,8.06]}, Lux:{adc:[53.83,0.81],support:[51.0,null]},
+  // SUPPORT
+  Thresh:{support:[51.67,13.57]}, Leona:{support:[51.69,7.86]}, Nautilus:{support:[49.97,10.75]},
+  Bard:{support:[50.71,7.51]}, Braum:{support:[51.56,4.61]}, Rell:{support:[51.51,3.67]},
+  Soraka:{support:[50.89,5.01]}, Pyke:{support:[49.93,6.87]}, Blitzcrank:{support:[50.46,5.71]},
+  Milio:{support:[50.24,6.13]}, Nami:{support:[49.5,8.2]}, Lulu:{support:[49.27,8.82]}, Janna:{support:[51.14,3.52]},
+  // Added coverage — op.gg Emerald+ 26.12 (pulled 2026-06-18)
+  'Dr. Mundo':{top:[50.42,3.7],jungle:[51.0,null]}, Illaoi:{top:[51.08,2.6]},
+  Graves:{jungle:[49.56,11.7]}, 'Master Yi':{jungle:[50.34,6.19]}, Shaco:{jungle:[50.43,4.48],support:[50.0,null]},
+  Kayn:{jungle:[50.04,7.57]}, Viego:{jungle:[49.24,9.64]}, Talon:{jungle:[50.14,5.12],mid:[49.5,null]},
+  Ekko:{mid:[50.59,3.25],jungle:[50.0,null]}, Veigar:{mid:[50.73,3.32],support:[50.0,null]},
+  Akali:{mid:[49.26,5.99],top:[49.0,null]},
+  'Miss Fortune':{adc:[49.33,6.1],support:[50.0,null]}, Vayne:{adc:[49.38,5.09],top:[49.0,null]},
+  Samira:{adc:[49.7,4.52]}, Sivir:{adc:[49.69,4.61]},
+  Taric:{support:[52.63,1.28]}, "Vel'Koz":{support:[50.38,3.76],mid:[49.5,null]},
+  Rakan:{support:[50.37,3.73]}, Zilean:{support:[50.96,2.7]}, Karma:{support:[49.15,8.19],mid:[49.0,null]},
+}
+
+// ── Pro draft priority — real tournament pick/ban data (internal signal only) ─
+// Aggregated across LCK 2026 R2MSI + LPL 2026 Split 2 Playoffs + LEC 2026 Spring
+// Playoffs (gol.gg, pulled 2026-06-18). {p:picks, b:bans}. Presence (p+b) = how
+// contested a champion is; high bans = flexible/high-impact picks teams refuse to
+// leave open. Used to weight suggestions; NOT shown in the UI. Refresh each split.
+const PRO = {
+  Varus:{p:14,b:81}, Orianna:{p:11,b:79}, Nocturne:{p:10,b:73}, Karma:{p:16,b:49},
+  Cassiopeia:{p:21,b:44}, Bard:{p:20,b:40}, 'Jarvan IV':{p:20,b:39}, Nautilus:{p:20,b:35},
+  Vayne:{p:6,b:39}, Akali:{p:14,b:31}, Naafiri:{p:22,b:27}, Rumble:{p:21,b:26},
+  Caitlyn:{p:21,b:24}, Pantheon:{p:10,b:23}, Vi:{p:19,b:23}, Gnar:{p:10,b:21},
+  Annie:{p:24,b:20}, Lucian:{p:17,b:19}, Ashe:{p:24,b:18}, Wukong:{p:21,b:17},
+  Seraphine:{p:23,b:16}, Ezreal:{p:24,b:16}, Olaf:{p:10,b:15}, 'Xin Zhao':{p:21,b:14},
+  'Lee Sin':{p:25,b:13}, LeBlanc:{p:3,b:13}, 'Twisted Fate':{p:14,b:13}, Ryze:{p:27,b:12},
+  Sion:{p:26,b:11}, Trundle:{p:19,b:11}, Yone:{p:5,b:11}, Lulu:{p:23,b:10},
+  Anivia:{p:12,b:9}, Jayce:{p:19,b:9}, Azir:{p:5,b:9}, Skarner:{p:12,b:8},
+  Poppy:{p:6,b:8}, Ambessa:{p:14,b:7}, Viktor:{p:11,b:7}, Sivir:{p:13,b:7},
+  Aurora:{p:15,b:6}, Milio:{p:16,b:6}, Jhin:{p:12,b:6}, Ahri:{p:17,b:5},
+  'Miss Fortune':{p:11,b:5}, Mel:{p:6,b:5}, Jax:{p:5,b:5}, Renekton:{p:17,b:4},
+  "K'Sante":{p:16,b:4}, Neeko:{p:17,b:4}, Rakan:{p:16,b:4}, Shen:{p:12,b:4},
+  Galio:{p:9,b:4}, Maokai:{p:7,b:4}, Yorick:{p:6,b:4}, Nami:{p:17,b:3},
+  Corki:{p:14,b:3}, Alistar:{p:9,b:3}, Camille:{p:5,b:3}, Taliyah:{p:9,b:2},
+  Xayah:{p:13,b:2}, Ziggs:{p:6,b:2}, Senna:{p:6,b:2},
+}
+const TAG_TO_ROLE = { Marksman:'adc', Support:'support', Mage:'mid', Assassin:'mid', Fighter:'top', Tank:'top' }
+const ALL_ROLES = ['top','jungle','mid','adc','support']
+// Authoritative champion roles (primary first), patch 26.12 — sourced from the
+// LoL wiki + per-role tier lists (u.gg / op.gg / mobalytics / dpm.lol). This is
+// the source of truth for which roles a champion plays; tags are only a fallback
+// for any champion not listed here. Keyed by Data Dragon display name.
+const CHAMPION_ROLES = {
+  Aatrox:['top','jungle'], Ahri:['mid'], Akali:['mid','top'], Akshan:['mid','top'],
+  Alistar:['support'], Ambessa:['top','jungle'], Amumu:['jungle','support'], Anivia:['mid'],
+  Annie:['mid','support'], Aphelios:['adc'], Ashe:['adc','support'], "Aurelion Sol":['mid'],
+  Aurora:['mid','top'], Azir:['mid'],
+  Bard:['support'], "Bel'Veth":['jungle'], Blitzcrank:['support'], Brand:['support','mid'],
+  Braum:['support'], Briar:['jungle'],
+  Caitlyn:['adc'], Camille:['top','support'], Cassiopeia:['mid','top'], "Cho'Gath":['top','mid'],
+  Corki:['mid','adc'],
+  Darius:['top'], Diana:['jungle','mid'], "Dr. Mundo":['top','jungle'], Draven:['adc'],
+  Ekko:['jungle','mid'], Elise:['jungle'], Evelynn:['jungle'], Ezreal:['adc'],
+  Fiddlesticks:['jungle','support'], Fiora:['top'], Fizz:['mid'],
+  Galio:['mid','support'], Gangplank:['top'], Garen:['top'], Gnar:['top'],
+  Gragas:['jungle','top','mid'], Graves:['jungle'], Gwen:['top','jungle'],
+  Hecarim:['jungle'], Heimerdinger:['support','mid','top'], Hwei:['mid','support','adc'],
+  Illaoi:['top'], Irelia:['top','mid'], Ivern:['jungle'],
+  Janna:['support'], "Jarvan IV":['jungle'], Jax:['top','jungle'], Jayce:['top','mid'],
+  Jhin:['adc'], Jinx:['adc'],
+  "Kai'Sa":['adc'], Kalista:['adc'], Karma:['support','mid'], Karthus:['jungle','mid'],
+  Kassadin:['mid'], Katarina:['mid'], Kayle:['top'], Kayn:['jungle'], Kennen:['top','mid'],
+  "Kha'Zix":['jungle'], Kindred:['jungle'], Kled:['top'], "Kog'Maw":['adc'], "K'Sante":['top'],
+  LeBlanc:['mid'], "Lee Sin":['jungle'], Leona:['support'], Lillia:['jungle'], Lissandra:['mid'],
+  Lucian:['adc','mid'], Lulu:['support'], Lux:['support','mid'],
+  Malphite:['top','support'], Malzahar:['mid'], Maokai:['support','top','jungle'],
+  "Master Yi":['jungle'], Mel:['mid','support'], Milio:['support'], "Miss Fortune":['adc','support'],
+  Mordekaiser:['top'], Morgana:['support','mid'],
+  Naafiri:['jungle','mid'], Nami:['support'], Nasus:['top','jungle'], Nautilus:['support'],
+  Neeko:['mid','support'], Nidalee:['jungle'], Nilah:['adc'], Nocturne:['jungle'],
+  "Nunu & Willump":['jungle'],
+  Olaf:['jungle','top'], Orianna:['mid'], Ornn:['top'],
+  Pantheon:['support','mid','top'], Poppy:['jungle','top','support'], Pyke:['support'],
+  Qiyana:['mid','jungle'], Quinn:['top'],
+  Rakan:['support'], Rammus:['jungle'], "Rek'Sai":['jungle'], Rell:['support'],
+  "Renata Glasc":['support'], Renekton:['top'], Rengar:['jungle','top'], Riven:['top'],
+  Rumble:['top','mid'], Ryze:['mid','top'],
+  Samira:['adc'], Sejuani:['jungle'], Senna:['support','adc'], Seraphine:['support','adc','mid'],
+  Sett:['top','support'], Shaco:['jungle','support'], Shen:['top'], Shyvana:['jungle'],
+  Singed:['top'], Sion:['top'], Sivir:['adc'], Skarner:['jungle'], Smolder:['adc'],
+  Sona:['support'], Soraka:['support'], Swain:['support','mid'], Sylas:['mid','jungle','top'],
+  Syndra:['mid'],
+  "Tahm Kench":['top','support'], Taliyah:['jungle','mid'], Talon:['mid','jungle'],
+  Taric:['support'], Teemo:['top','support'], Thresh:['support'], Tristana:['adc','mid'],
+  Trundle:['jungle','top'], Tryndamere:['top'], "Twisted Fate":['mid'], Twitch:['adc','jungle'],
+  Udyr:['jungle'], Urgot:['top'],
+  Varus:['adc','mid'], Vayne:['adc','top'], Veigar:['mid','support'], "Vel'Koz":['support','mid'],
+  Vex:['mid'], Vi:['jungle'], Viego:['jungle'], Viktor:['mid'], Vladimir:['mid','top'],
+  Volibear:['jungle','top'],
+  Warwick:['jungle','top'], Wukong:['jungle','top'],
+  Xayah:['adc'], Xerath:['support','mid'], "Xin Zhao":['jungle'],
+  Yasuo:['mid','top'], Yone:['top','mid'], Yorick:['top'], Yuumi:['support'],
+  Zac:['jungle','top'], Zed:['mid'], Zeri:['adc'], Ziggs:['mid','adc'], Zilean:['support','mid'],
+  Zoe:['mid'], Zyra:['support','jungle'],
+}
+
+// Roles a champion is currently viable in (patch data → META roles → tags)
+function champRoles(champId) {
+  const td = TIER_DATA[champId] || {}
+  const set = new Set()
+  if (td.patch) for (const r in td.patch) set.add(r)
+  for (const r of (td.roles || [])) set.add(r)
+  if (!set.size) for (const t of (CHAMPS[champId]?.tags || [])) { const r = TAG_TO_ROLE[t]; if (r) set.add(r) }
+  return set
+}
+// Patch-meta strength for a role: {wr, pr, score 0-1}. Falls back to curated tier.
+function metaForRole(champId, role) {
+  const td = TIER_DATA[champId] || {}
+  let wr = null, pr = null
+  if (td.patch) {
+    if (role && td.patch[role]) { [wr, pr] = td.patch[role] }
+    else for (const r in td.patch) { if (wr === null || td.patch[r][0] > wr) [wr, pr] = td.patch[r] }
+  }
+  if (wr !== null) return { wr, pr, score: Math.max(0, Math.min(1, (wr - 47) / 7)) }
+  const tier = td.tier || 3
+  return { wr: null, pr: null, score: TIER_SCORES[tier - 1] ?? 0.4 }
+}
+// Ordered role list (PRIMARY first) — authoritative from CHAMPION_ROLES via
+// TIER_DATA.roles; falls back to patch roles by WR, then tag mapping.
+function roleListOrdered(champId) {
+  const td = TIER_DATA[champId] || {}
+  if (td.roles && td.roles.length) return td.roles
+  if (td.patch) return Object.keys(td.patch).sort((a, b) => td.patch[b][0] - td.patch[a][0])
+  const out = []
+  for (const t of (CHAMPS[champId]?.tags || [])) { const r = TAG_TO_ROLE[t]; if (r && !out.includes(r)) out.push(r) }
+  return out
+}
+// How much a champion BELONGS in a role. Primary role dominates; off-roles (ok WR
+// but rarely actually played there) are heavily discounted. A real pick rate in
+// the role (matches played) can lift a secondary role only if it's truly played.
+function roleFit(champId, role) {
+  const list = roleListOrdered(champId)
+  const idx = list.indexOf(role)
+  const pr = TIER_DATA[champId]?.patch?.[role]?.[1] ?? null
+  let fit = idx === 0 ? 1.0 : idx === 1 ? 0.70 : idx >= 2 ? 0.5 : 0.26
+  if (idx > 0 && pr !== null && pr >= 4) fit = Math.max(fit, 0.78)  // genuinely played there
+  return fit
+}
+// How many champions hard-counter this one (reverse of COUNTERS) — a proxy for how
+// risky the champ is to reveal early, when the enemy can still pick its counter.
+let _counterRisk = null
+function counterRiskCount(champId) {
+  if (!_counterRisk) {
+    _counterRisk = {}
+    for (const k in COUNTERS) for (const v of COUNTERS[k]) _counterRisk[v] = (_counterRisk[v] || 0) + 1
+  }
+  return _counterRisk[champId] || 0
+}
+function pickVerdict(score) {
+  if (score >= 72) return { label: 'Strong pick',  color: 'var(--green)' }
+  if (score >= 58) return { label: 'Solid',        color: 'var(--gold)' }
+  if (score >= 45) return { label: 'Situational',  color: 'var(--gold-l)' }
+  return            { label: 'Weak here',          color: '#E87A65' }
+}
+const ARCH_COLORS = {engage:'#E67E22',poke:'#F1C40F',assassin:'#E74C3C',peel:'#27AE60',scaling:'#3498DB',mixed:'#7F8C8D'}
+const ROLE_MAP = {1:'jungle',2:'support',3:'adc',4:'top',5:'mid'}
+
+// t=tier(1-5), r=roles, p=pro presence(0-3: 0=rare,1=occasional,2=frequent,3=staple)
+const META = {
+  Aatrox:{t:2,r:['top'],p:2},Ahri:{t:2,r:['mid'],p:1},Akali:{t:2,r:['mid','top']},
+  Ambessa:{t:1,r:['top','jungle'],p:1},Aphelios:{t:2,r:['adc'],p:2},
+  Ashe:{t:2,r:['adc']},Aurora:{t:2,r:['mid','top']},Azir:{t:1,r:['mid'],p:3},
+  Bard:{t:2,r:['support']},Blitzcrank:{t:2,r:['support']},
+  Brand:{t:2,r:['support','mid']},Braum:{t:2,r:['support'],p:2},
+  Caitlyn:{t:2,r:['adc'],p:2},Camille:{t:1,r:['top'],p:1},Corki:{t:2,r:['mid','adc'],p:2},
+  Darius:{t:2,r:['top']},Diana:{t:2,r:['mid','jungle']},
+  Ekko:{t:2,r:['jungle','mid']},Elise:{t:2,r:['jungle'],p:1},Ezreal:{t:2,r:['adc'],p:1},
+  FiddleSticks:{t:2,r:['jungle']},Fiora:{t:2,r:['top']},Fizz:{t:2,r:['mid']},
+  Galio:{t:2,r:['mid','support'],p:1},Gangplank:{t:2,r:['top'],p:1},
+  Gnar:{t:2,r:['top'],p:2},Gragas:{t:2,r:['jungle','support'],p:2},Graves:{t:2,r:['jungle']},
+  Hecarim:{t:2,r:['jungle']},Illaoi:{t:2,r:['top']},Irelia:{t:2,r:['top','mid']},
+  Janna:{t:2,r:['support']},Jarvan:{t:2,r:['jungle'],p:1},Jax:{t:2,r:['top','jungle'],p:1},
+  Jayce:{t:2,r:['top','mid'],p:1},Jhin:{t:2,r:['adc'],p:2},
+  Jinx:{t:1,r:['adc'],p:3},Kaisa:{t:2,r:['adc'],p:1},Kalista:{t:2,r:['adc'],p:3},
+  Karma:{t:2,r:['support'],p:2},Kassadin:{t:2,r:['mid']},Katarina:{t:2,r:['mid']},
+  Kayle:{t:2,r:['top']},Kayn:{t:1,r:['jungle']},Kennen:{t:2,r:['top'],p:2},
+  Khazix:{t:2,r:['jungle']},KogMaw:{t:2,r:['adc']},KSante:{t:1,r:['top'],p:2},
+  Leblanc:{t:2,r:['mid']},LeeSin:{t:2,r:['jungle'],p:2},Leona:{t:2,r:['support'],p:2},
+  Lillia:{t:1,r:['jungle']},Lissandra:{t:2,r:['mid'],p:1},
+  Lucian:{t:2,r:['adc','mid']},Lulu:{t:1,r:['support'],p:3},Lux:{t:2,r:['support','mid']},
+  Malphite:{t:1,r:['top']},Malzahar:{t:2,r:['mid']},
+  Maokai:{t:2,r:['top','support'],p:3},MasterYi:{t:2,r:['jungle']},Milio:{t:2,r:['support'],p:1},
+  Mordekaiser:{t:2,r:['top']},Morgana:{t:2,r:['support','mid']},
+  Nami:{t:2,r:['support'],p:1},Nautilus:{t:1,r:['support'],p:2},
+  Neeko:{t:2,r:['mid','support']},Nidalee:{t:2,r:['jungle'],p:1},
+  Nocturne:{t:2,r:['jungle']},Nunu:{t:1,r:['jungle']},Olaf:{t:2,r:['jungle','top']},
+  Orianna:{t:1,r:['mid'],p:3},Ornn:{t:1,r:['top'],p:2},
+  Pantheon:{t:2,r:['support','mid','top'],p:1},Poppy:{t:2,r:['jungle','top']},
+  Pyke:{t:2,r:['support']},Qiyana:{t:2,r:['mid']},
+  Rakan:{t:2,r:['support'],p:1},Rammus:{t:2,r:['jungle']},Rell:{t:2,r:['support'],p:2},
+  Renata:{t:2,r:['support']},Renekton:{t:2,r:['top'],p:2},Rengar:{t:2,r:['jungle']},
+  Riven:{t:2,r:['top']},Rumble:{t:2,r:['top','mid'],p:1},Ryze:{t:2,r:['mid'],p:2},
+  Samira:{t:1,r:['adc']},Sejuani:{t:2,r:['jungle'],p:2},
+  Senna:{t:2,r:['support','adc']},Seraphine:{t:2,r:['support','mid'],p:1},
+  Sett:{t:2,r:['top','support']},Shaco:{t:2,r:['jungle']},Shen:{t:2,r:['top'],p:1},
+  Sion:{t:1,r:['top'],p:2},Skarner:{t:1,r:['jungle'],p:3},Smolder:{t:2,r:['adc']},
+  Sona:{t:2,r:['support']},Soraka:{t:2,r:['support']},
+  Swain:{t:2,r:['support','mid']},Sylas:{t:2,r:['mid'],p:2},Syndra:{t:2,r:['mid'],p:1},
+  TahmKench:{t:2,r:['support','top']},Taliyah:{t:2,r:['jungle','mid'],p:1},
+  Talon:{t:2,r:['mid','jungle']},Taric:{t:2,r:['support']},
+  Thresh:{t:1,r:['support'],p:3},Tristana:{t:2,r:['adc']},Trundle:{t:2,r:['jungle','top']},
+  Tryndamere:{t:2,r:['top']},TwistedFate:{t:2,r:['mid'],p:2},Twitch:{t:2,r:['adc']},
+  Udyr:{t:1,r:['jungle']},Urgot:{t:2,r:['top']},
+  Varus:{t:2,r:['adc'],p:2},Vayne:{t:2,r:['adc']},Veigar:{t:2,r:['mid']},
+  Velkoz:{t:2,r:['support','mid']},Vex:{t:2,r:['mid']},
+  Vi:{t:2,r:['jungle']},Viego:{t:1,r:['jungle']},Viktor:{t:1,r:['mid'],p:3},
+  Vladimir:{t:2,r:['mid','top']},Volibear:{t:2,r:['jungle','top']},
+  Warwick:{t:2,r:['jungle']},Wukong:{t:2,r:['jungle','top']},
+  Xayah:{t:2,r:['adc'],p:1},Xerath:{t:2,r:['support','mid']},
+  XinZhao:{t:2,r:['jungle']},Yasuo:{t:2,r:['mid']},Yone:{t:2,r:['mid','top']},
+  Zac:{t:1,r:['jungle'],p:3},Zed:{t:2,r:['mid']},Zeri:{t:2,r:['adc'],p:1},
+  Ziggs:{t:2,r:['adc','mid']},Zilean:{t:2,r:['support'],p:1},Zoe:{t:2,r:['mid'],p:1},
+  Zyra:{t:2,r:['support']},Briar:{t:2,r:['jungle']},Hwei:{t:2,r:['mid'],p:1},
+  Naafiri:{t:3,r:['mid']},
+}
+
+// ── App state ──────────────────────────────────────────────────────────────
+let CHAMPS = {}, CHAMP_LIST = [], TIER_DATA = {}
+let mainTab = 'solo'   // solo | flex | ranked5
+let sugTab  = 'picks'
+let roleFilter = ''
+let bansEnabled   = false   // solo/flex only — ranked5 always has bans
+let banSideActive = null    // 'blue' | 'red' | null — which side is being filled
+let mySide = 'blue'         // flex/ranked5 — which side KQF is on (blue picks first;
+                            // red gets counter-pick / last pick). Drives ally/enemy.
+const otherSide = () => (mySide === 'blue' ? 'red' : 'blue')
+
+// Solo Queue mode: personal pick helper for one roster member
+const SOLO_PLAYER = 'monkeydadam'
+let soloRole = 'adc'        // the role that player is on this game
+let soloSide = 'red'        // which side new clicks fill: 'blue'=your team, 'red'=enemy
+// Which champion tags are relevant to each role (for solo recommendations)
+const ROLE_TAGS = {
+  top:     ['Fighter','Tank'],
+  jungle:  ['Fighter','Tank','Assassin'],
+  mid:     ['Mage','Assassin'],
+  adc:     ['Marksman'],
+  support: ['Support','Tank','Mage'],
+}
+
+// Pick-only order (used when bans are off, or for solo/flex ban-mode picks)
+const PICKS_ONLY_ORDER = [
+  {team:'blue',type:'pick',slot:0},{team:'red',type:'pick',slot:0},
+  {team:'red', type:'pick',slot:1},{team:'blue',type:'pick',slot:1},
+  {team:'blue',type:'pick',slot:2},{team:'red', type:'pick',slot:2},
+  {team:'red', type:'pick',slot:3},{team:'blue',type:'pick',slot:3},
+  {team:'blue',type:'pick',slot:4},{team:'red', type:'pick',slot:4},
+]
+
+function getActiveDraftOrder() {
+  return mainTab === 'ranked5' ? DRAFT_ORDER : PICKS_ONLY_ORDER
+}
+
+// Roster state — one entry per KQF member
+// role: currently assigned role (can change from default)
+// active: whether they're playing this game (flex toggle)
+const roster = KQF_ROSTER.map(p => ({
+  ...p,
+  role: p.defaultRole,
+  active: !p.isSub,
+  opggTag: p.opggTag,
+  pool: seedPoolFor(p.name),   // baseline; replaced by live OP.GG data when available
+  poolLoading: false,
+  poolError: null,
+}))
+
+const DRAFT_ORDER = [
+  {team:'blue',type:'ban',slot:0},{team:'red',type:'ban',slot:0},
+  {team:'blue',type:'ban',slot:1},{team:'red',type:'ban',slot:1},
+  {team:'blue',type:'ban',slot:2},{team:'red',type:'ban',slot:2},
+  {team:'blue',type:'pick',slot:0},{team:'red',type:'pick',slot:0},
+  {team:'red',type:'pick',slot:1},{team:'blue',type:'pick',slot:1},
+  {team:'blue',type:'pick',slot:2},{team:'red',type:'pick',slot:2},
+  {team:'red',type:'ban',slot:3},{team:'blue',type:'ban',slot:3},
+  {team:'red',type:'ban',slot:4},{team:'blue',type:'ban',slot:4},
+  {team:'red',type:'pick',slot:3},{team:'blue',type:'pick',slot:3},
+  {team:'blue',type:'pick',slot:4},{team:'red',type:'pick',slot:4},
+]
+
+const DS = {
+  step: 0,
+  blue: { bans:Array(5).fill(null), picks:Array(5).fill(null), names:Array(5).fill(''), roles:[...ALL_ROLES] },
+  red:  { bans:Array(5).fill(null), picks:Array(5).fill(null), names:Array(5).fill(''), roles:[...ALL_ROLES] },
+  history: [],
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const vr = await fetch('https://ddragon.leagueoflegends.com/api/versions.json')
+    const v = (await vr.json())[0]
+    const cr = await fetch(`https://ddragon.leagueoflegends.com/cdn/${v}/data/en_US/champion.json`)
+    const raw = await cr.json()
+    for (const [key, c] of Object.entries(raw.data)) {
+      const id = parseInt(c.key)
+      CHAMPS[id] = { id, key, name:c.name, tags:c.tags,
+        img:`https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${id}.png` }
+    }
+    CHAMP_LIST = Object.values(CHAMPS).sort((a,b)=>a.name.localeCompare(b.name))
+    for (const c of CHAMP_LIST) {
+      const m = META[c.key] || META[c.name.replace(/[' ]/g,'')] || null
+      const td = m ? {tier:m.t,roles:m.r,pro:m.p??0} : {tier:3,roles:[],pro:0}
+      // Authoritative roles (source of truth); tags only fall back if unlisted
+      if (CHAMPION_ROLES[c.name]) td.roles = CHAMPION_ROLES[c.name]
+      // Attach current-patch per-role win/pick data (by display name)
+      td.patch = PATCH_DATA[c.name] || null
+      TIER_DATA[c.id] = td
+    }
+  } catch(e) {
+    document.getElementById('loading-text').textContent = 'FAILED — CHECK INTERNET CONNECTION'
+    return
+  }
+  document.getElementById('loading').style.display = 'none'
+  // Restore cached OP.GG pools from localStorage
+  roster.forEach((p, i) => {
+    const cached = poolCacheLoad(p.name, p.opggTag)
+    if (cached) roster[i].pool = cached
+  })
+  applyRosterToTeam()
+  filterGrid()
+  // Initialise the default (Solo Queue) tab UI so the board/panel match the mode
+  switchMainTab('solo')
+  // Silently auto-fetch any player without pool data
+  autoLoadPools()
+}
+
+async function autoLoadPools() {
+  for (let i = 0; i < roster.length; i++) {
+    // Refresh anyone who only has seed/baseline data (or nothing) — live data
+    // replaces the seed on success; on failure the seed stays visible.
+    const onlySeed = !roster[i].pool.length || roster[i].pool.every(e => e.seeded)
+    if (onlySeed && !roster[i].poolLoading) {
+      await loadPlayerPool(i)
+    }
+  }
+}
+
+// ── OP.GG pool loading ────────────────────────────────────────────────────
+function poolCacheKey(name, tag) {
+  return `opgg_${name}_${tag}`.toLowerCase().replace(/\s+/g,'_')
+}
+function poolCacheLoad(name, tag) {
+  try {
+    const raw = localStorage.getItem(poolCacheKey(name, tag))
+    if (!raw) return null
+    const { pool, ts } = JSON.parse(raw)
+    if (Date.now() - ts > 24 * 60 * 60 * 1000) return null  // expire after 24h
+    return pool
+  } catch { return null }
+}
+function poolCacheSave(name, tag, pool) {
+  try { localStorage.setItem(poolCacheKey(name, tag), JSON.stringify({ pool, ts: Date.now() })) } catch {}
+}
+
+async function loadPlayerPool(idx) {
+  const p = roster[idx]
+  // Check cache first (unless explicitly refreshing)
+  const cached = poolCacheLoad(p.name, p.opggTag)
+  if (cached && cached.length) {
+    roster[idx].pool = cached
+    renderRoster(); render()
+    return
+  }
+
+  roster[idx].poolLoading = true
+  roster[idx].poolError = null
+  renderRoster()
+
+  try {
+    // Step 1: resolve summoner → get internal summoner_id
+    const sumUrl = `${OPGG_API}/summoners/na/summoners?gaming_name=${encodeURIComponent(p.display||p.name)}&tag_line=${encodeURIComponent(p.opggTag)}`
+    const r1 = await fetch(CORS_PROXY + encodeURIComponent(sumUrl))
+    if (!r1.ok) throw new Error(`HTTP ${r1.status}`)
+    const sumData = await r1.json()
+    const summId = sumData?.data?.summoner_id || sumData?.data?.id
+    if (!summId) throw new Error('Summoner not found — check name/tag')
+
+    // Step 2: fetch most-played champion statistics
+    const statUrl = `${OPGG_API}/games/na/summoners/${summId}/most-champions/statistics?game_type=ranked&period=season&limit=20`
+    const r2 = await fetch(CORS_PROXY + encodeURIComponent(statUrl))
+    if (!r2.ok) throw new Error(`Stats HTTP ${r2.status}`)
+    const statData = await r2.json()
+
+    const pool = (statData?.data || []).map(c => ({
+      championId: c.id,
+      games: (c.win || 0) + (c.lose || 0),
+      wins: c.win || 0,
+      winRate: ((c.win||0) + (c.lose||0)) > 0
+        ? Math.round((c.win||0) / ((c.win||0) + (c.lose||0)) * 100) : 0,
+    })).filter(c => c.games > 0)
+
+    // Step 3: fetch recent 20 ranked games for richer per-game data
+    try {
+      const gamesUrl = `${OPGG_API}/games/na/summoners/${summId}/games?&limit=20&game_type=ranked`
+      const r3 = await fetch(CORS_PROXY + encodeURIComponent(gamesUrl))
+      if (r3.ok) {
+        const gd = await r3.json()
+        roster[idx].recentGames = (gd?.data || []).map(g => ({
+          champId:  g.champion?.id ?? null,
+          win:      g.is_win ?? false,
+          kills:    g.stats?.general?.kill ?? 0,
+          deaths:   g.stats?.general?.death ?? 0,
+          assists:  g.stats?.general?.assist ?? 0,
+          position: g.summary_player_position?.position ?? null,
+        }))
+        // Merge recent game data into pool entries for more accurate recent WR
+        const recentMap = {}
+        for (const g of roster[idx].recentGames) {
+          if (!g.champId) continue
+          if (!recentMap[g.champId]) recentMap[g.champId] = { wins: 0, games: 0 }
+          recentMap[g.champId].games++
+          if (g.win) recentMap[g.champId].wins++
+        }
+        for (const entry of pool) {
+          if (recentMap[entry.championId]) {
+            entry.recentGames = recentMap[entry.championId].games
+            entry.recentWR = Math.round(recentMap[entry.championId].wins / recentMap[entry.championId].games * 100)
+          }
+        }
+      }
+    } catch { /* recent games optional — don't fail pool load */ }
+
+    roster[idx].pool = pool
+    roster[idx].poolLoading = false
+    poolCacheSave(p.name, p.opggTag, pool)
+  } catch(e) {
+    roster[idx].poolLoading = false
+    roster[idx].poolError = e.message
+  }
+  renderRoster()
+  render()
+}
+window.loadPlayerPool = loadPlayerPool
+
+function refreshPlayerPool(idx) {
+  // Clear cache then reload — fall back to baseline seed if the fetch fails
+  const p = roster[idx]
+  try { localStorage.removeItem(poolCacheKey(p.name, p.opggTag)) } catch {}
+  roster[idx].pool = seedPoolFor(p.name)
+  loadPlayerPool(idx)
+}
+window.refreshPlayerPool = refreshPlayerPool
+
+function setPlayerTag(idx, tag) {
+  roster[idx].opggTag = tag.trim()
+  roster[idx].pool = seedPoolFor(roster[idx].name)
+  roster[idx].poolError = null
+}
+window.setPlayerTag = setPlayerTag
+
+// ── Main tab switching ─────────────────────────────────────────────────────
+function switchMainTab(tab) {
+  mainTab = tab
+  document.querySelectorAll('.main-tab').forEach((el,i)=>{
+    const tabs = ['solo','flex','ranked5']
+    el.classList.toggle('active', tabs[i]===tab)
+  })
+  const strip = document.getElementById('roster-strip')
+  if (tab==='solo') {
+    strip.classList.remove('visible')
+  } else {
+    strip.classList.add('visible')
+    renderRoster()
+    syncSideButtons()
+  }
+  // Solo: personal pick helper — no bans, no roster, both teams shown so you
+  // can log allies and enemies as the draft goes.
+  const soloBar = document.getElementById('solo-bar')
+  if (soloBar) soloBar.classList.toggle('hidden', tab !== 'solo')
+  // Suggestions follow the draft phase automatically — no manual Picks/Bans tabs.
+  document.getElementById('sug-tabs').classList.add('hidden')
+
+  // Bans exist only in Ranked 5's (always on). Solo & Flex are picks-only.
+  document.getElementById('bans-toggle-row').style.display = 'none'
+  document.getElementById('ban-mode-bar').classList.remove('visible')
+  bansEnabled = (tab === 'ranked5')
+  banSideActive = null
+  document.getElementById('bans-toggle').className = bansEnabled ? 'toggle-btn on' : 'toggle-btn off'
+
+  // Reset picks/bans when switching tabs (roster re-applies to our side below)
+  Object.assign(DS, {
+    step:0,
+    blue:{bans:Array(5).fill(null),picks:Array(5).fill(null),names:Array(5).fill(''),roles:[...ALL_ROLES]},
+    red: {bans:Array(5).fill(null),picks:Array(5).fill(null),names:Array(5).fill(''),roles:[...ALL_ROLES]},
+    history:[],
+  })
+  applyRosterToTeam()
+  render()
+  // History button: Flex + Ranked 5's (both save drafts), hidden in Solo
+  const histBtn = document.getElementById('history-btn')
+  if (histBtn) histBtn.classList.toggle('hidden', tab === 'solo')
+  // Hide Save Draft when switching tabs (it re-appears when draft completes)
+  const saveBtn = document.getElementById('save-draft-hdr')
+  if (saveBtn) saveBtn.classList.add('hidden')
+}
+window.switchMainTab = switchMainTab
+
+// ── Our side (flex / ranked5) ───────────────────────────────────────────────
+function syncSideButtons() {
+  const sb = document.getElementById('side-blue'), sr = document.getElementById('side-red')
+  if (sb) sb.classList.toggle('active', mySide === 'blue')
+  if (sr) sr.classList.toggle('active', mySide === 'red')
+}
+function setMySide(side) {
+  if (side === mySide || mainTab === 'solo') return
+  mySide = side
+  syncSideButtons()
+  // Side flips ally/enemy and pick order — start the draft clean on the new side.
+  resetDraft()
+}
+window.setMySide = setMySide
+
+function setSoloRole(role) {
+  soloRole = role
+  render()
+}
+window.setSoloRole = setSoloRole
+
+function setSoloSide(side) {
+  soloSide = side
+  document.getElementById('ssb-blue').classList.toggle('active', side === 'blue')
+  document.getElementById('ssb-red').classList.toggle('active', side === 'red')
+}
+window.setSoloSide = setSoloSide
+
+// ── Roster ────────────────────────────────────────────────────────────────
+function renderRoster() {
+  const el = document.getElementById('roster-cards')
+  el.style.display = 'flex'
+  el.style.gap = '6px'
+  el.style.flexWrap = 'wrap'
+  const isRanked5 = mainTab === 'ranked5'
+  const isFlex    = mainTab === 'flex'
+
+  el.innerHTML = roster.map((p, i) => {
+    const isSub = p.isSub
+    const isActive = p.active
+
+    // Role options
+    const roleOpts = ROLES.map(r =>
+      `<option value="${r}" ${p.role===r?'selected':''}>${ROLE_LABELS[r]}</option>`
+    ).join('')
+
+    const roleDropdown = `<select class="role-select" onchange="setPlayerRole(${i},this.value)">${roleOpts}</select>`
+
+    // Toggle button (active/benched)
+    const toggleBtn = `<div class="toggle-btn ${isActive?'on':'off'}" onclick="togglePlayer(${i})" title="${isActive?'Click to bench':'Click to activate'}"></div>`
+
+    const cardClass = `player-card ${isActive?'active-player':''} ${isSub?'sub-card':''} ${!isActive?'out':''}`
+
+    // Pool icons (top 10)
+    const topPool = p.pool.slice(0, 10)
+    const poolIcons = topPool.map(entry => {
+      const c = CHAMPS[entry.championId]
+      if (!c) return ''
+      const wrClass = entry.winRate >= 50 ? '' : ' bad'
+      return `<div class="pc-pool-icon" title="${c.name} — ${entry.games}g ${entry.winRate}%WR">
+        <img src="${c.img}" alt="${c.name}" onerror="this.style.display='none'"/>
+        <div class="pool-wr${wrClass}">${entry.winRate}%</div>
+      </div>`
+    }).join('')
+
+    // Is the pool showing baseline (seed) data rather than a live OP.GG fetch?
+    const isSeed = p.pool.length && p.pool.every(e => e.seeded)
+
+    // Load button state
+    let loadBtnCls = 'load-btn', loadBtnTxt = 'Load'
+    if (p.poolLoading) { loadBtnCls += ' loading'; loadBtnTxt = '...' }
+    else if (p.poolError && !p.pool.length) { loadBtnCls += ' err'; loadBtnTxt = 'Err' }
+    else if (p.pool.length) { loadBtnCls += ' done'; loadBtnTxt = '↺' }
+
+    const opggHref = `https://www.op.gg/summoners/na/${encodeURIComponent(p.display||p.name)}-${encodeURIComponent(p.opggTag)}`
+
+    return `<div class="${cardClass}" id="pc-${i}">
+      <div class="pc-top">
+        <span class="pc-name" title="${p.display||p.name}">${p.display||p.name}</span>
+        ${toggleBtn}
+      </div>
+      <div class="pc-bottom">
+        ${isActive ? roleDropdown : `<span class="pc-role-badge sub">BENCHED</span>`}
+        ${isSub && isActive ? '<span class="sub-label">SUB</span>' : ''}
+      </div>
+      <div class="opgg-row">
+        <span style="color:var(--gray);font-size:9px">#</span>
+        <input class="opgg-tag-input" value="${p.opggTag}" title="Tag line"
+          onchange="setPlayerTag(${i},this.value)" onclick="event.stopPropagation()"/>
+        <button class="${loadBtnCls}" onclick="loadPlayerPool(${i})" title="${p.poolError||'Load champion pool from OP.GG'}">${loadBtnTxt}</button>
+        <a class="opgg-link" href="${opggHref}" target="_blank" title="Open OP.GG">↗</a>
+      </div>
+      ${topPool.length ? `<div class="pc-pool">${poolIcons}</div>` : ''}
+      ${p.poolError && !p.pool.length
+        ? `<div style="color:var(--red);font-size:9px;margin-top:3px" title="${p.poolError}">⚠ ${p.poolError.slice(0,30)}</div>`
+        : isSeed
+          ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px" title="Showing baseline pool. Click ↺ to pull live OP.GG data.">baseline · ↺ for live</div>`
+          : ''}
+    </div>`
+  }).join('')
+}
+
+function setPlayerRole(idx, role) {
+  roster[idx].role = role
+  applyRosterToTeam()
+  render()
+}
+window.setPlayerRole = setPlayerRole
+
+function togglePlayer(idx) {
+  const p = roster[idx]
+  // In ranked5: only allow toggling the sub, or bench one main to activate sub
+  // In flex: freely toggle anyone
+  if (mainTab === 'ranked5') {
+    if (p.isSub) {
+      // Toggle sub: if activating, need to bench a main
+      if (!p.active) {
+        // Activate sub — prompt which main sits out? For now just activate
+        p.active = true
+      } else {
+        p.active = false
+      }
+    } else {
+      p.active = !p.active
+    }
+  } else {
+    p.active = !p.active
+  }
+  renderRoster()
+  applyRosterToTeam()
+  render()
+}
+window.togglePlayer = togglePlayer
+
+function applyRosterToTeam() {
+  if (mainTab === 'solo') return
+
+  const activePlayers = roster.filter(p => p.active && p.role !== 'sub')
+  // Sort by role order: top jng mid adc sup
+  const roleOrder = { top:0, jungle:1, mid:2, adc:3, support:4 }
+  activePlayers.sort((a,b) => (roleOrder[a.role]??9) - (roleOrder[b.role]??9))
+
+  // Fill OUR side's slots with active player names + roles; the enemy side stays
+  // unknown (generic role slots, blank names) until we log their picks.
+  const us = mySide, them = otherSide()
+  for (let i = 0; i < 5; i++) {
+    const p = activePlayers[i]
+    DS[us].names[i] = p ? (p.display||p.name) : ''
+    DS[us].roles[i] = p ? p.role : ''
+  }
+  DS[them].names = Array(5).fill('')
+  DS[them].roles = [...ALL_ROLES]
+}
+
+// ── Ban toggle (solo/flex only) ────────────────────────────────────────────
+function toggleBans() {
+  bansEnabled = !bansEnabled
+  document.getElementById('bans-toggle').className = `toggle-btn ${bansEnabled ? 'on' : 'off'}`
+  const bar = document.getElementById('ban-mode-bar')
+  DS.blue.bans = Array(5).fill(null)
+  DS.red.bans  = Array(5).fill(null)
+  DS.step = 0; DS.history = []
+  if (bansEnabled) {
+    bar.classList.add('visible')
+    setBanSide('blue')   // auto-start on blue side
+  } else {
+    bar.classList.remove('visible')
+    banSideActive = null
+  }
+  render(); filterGrid()
+}
+window.toggleBans = toggleBans
+
+function setBanSide(side) {
+  banSideActive = side
+  document.getElementById('bsb-blue').classList.toggle('active', side === 'blue')
+  document.getElementById('bsb-red').classList.toggle('active', side === 'red')
+  document.getElementById('ban-mode-hint').textContent =
+    `Clicking a champion adds it to ${side.toUpperCase()} bans (${DS[side].bans.filter(Boolean).length}/5 filled)`
+}
+window.setBanSide = setBanSide
+
+function clearBan(side, slot, e) {
+  e && e.stopPropagation()
+  DS[side].bans[slot] = null
+  updateBanCounts()
+  render(); filterGrid()
+}
+window.clearBan = clearBan
+
+function updateBanCounts() {
+  document.getElementById('bc-blue').textContent = `${DS.blue.bans.filter(Boolean).length}/5`
+  document.getElementById('bc-red').textContent  = `${DS.red.bans.filter(Boolean).length}/5`
+}
+
+// ── Draft actions ─────────────────────────────────────────────────────────
+let _pendingAssign = null
+
+function selectChamp(id, evt) {
+  if (getUsedIds().includes(id)) return
+
+  // Solo mode: one click adds the champ to the active side (your team / enemy).
+  // Recommendations re-rank live off both teams after every pick.
+  if (mainTab === 'solo') {
+    const slot = DS[soloSide].picks.indexOf(null)
+    if (slot !== -1) { DS[soloSide].picks[slot] = id; render(); filterGrid() }
+    return
+  }
+
+  // Solo/flex ban-fill mode
+  if (mainTab !== 'ranked5' && bansEnabled && banSideActive) {
+    const team = DS[banSideActive]
+    const slot = team.bans.indexOf(null)
+    if (slot === -1) return
+    team.bans[slot] = id
+    updateBanCounts()
+    render(); filterGrid()
+    return
+  }
+
+  const order = getActiveDraftOrder()
+  if (DS.step < order.length) {
+    const step = order[DS.step]
+    // Bans use the fixed ban slot; PICKS snap to the champion's role/player slot
+    // (so an ADC lands on the ADC player, not wherever pick order points).
+    const slot = step.type === 'ban' ? step.slot : roleSlotFor(step.team, id)
+    DS[step.team][step.type==='ban'?'bans':'picks'][slot] = id
+    DS.history.push({step:DS.step, team:step.team, type:step.type, slot})
+    DS.step++
+    render(); filterGrid()
+    return
+  }
+
+  // Draft complete — show slot picker so user can edit any pick
+  _pendingAssign = id
+  showSlotPicker(evt)
+}
+
+function showSlotPicker(evt) {
+  const c = CHAMPS[_pendingAssign]
+  const picker = document.getElementById('slot-picker')
+  const solo = mainTab === 'solo'
+  const bRows = [0,1,2,3,4].map(i => {
+    const name = DS.blue.names[i] || (solo ? `Mine ${i+1}` : `Blue ${i+1}`)
+    return `<button class="sp-btn b" onclick="assignToPick('blue',${i})">${name.slice(0,12)}</button>`
+  }).join('')
+  const rRows = [0,1,2,3,4].map(i => {
+    const name = DS.red.names[i] || (solo ? `Enemy ${i+1}` : `Red ${i+1}`)
+    return `<button class="sp-btn r" onclick="assignToPick('red',${i})">${name.slice(0,12)}</button>`
+  }).join('')
+  picker.innerHTML = `
+    <div class="sp-title">Assign ${c?.name||''} to:</div>
+    ${solo?`<div style="font-size:9px;color:var(--blue);margin-bottom:2px">YOUR TEAM</div>`:''}
+    <div class="sp-row">${bRows}</div>
+    ${solo?`<div style="font-size:9px;color:var(--red);margin:4px 0 2px">ENEMY</div>`:''}
+    <div class="sp-row">${rRows}</div>
+    <button class="sp-cancel" onclick="closeSlotPicker()">Cancel</button>`
+  picker.classList.remove('hidden')
+  // Position near the click
+  if (evt) {
+    const x = Math.min(evt.clientX, window.innerWidth - 220)
+    const y = Math.min(evt.clientY + 8, window.innerHeight - 160)
+    picker.style.left = x + 'px'; picker.style.top = y + 'px'
+  }
+}
+
+function assignToPick(side, slot) {
+  if (_pendingAssign === null) return
+  DS[side].picks[slot] = _pendingAssign
+  _pendingAssign = null
+  closeSlotPicker()
+  render(); filterGrid()
+}
+
+function closeSlotPicker() {
+  _pendingAssign = null
+  document.getElementById('slot-picker').classList.add('hidden')
+}
+window.assignToPick = assignToPick
+window.closeSlotPicker = closeSlotPicker
+
+// Move a locked pick to a different role/slot on the SAME team (champs are often
+// played out of role). Picks auto-fill the most common role; this lets you fix it.
+function openMovePick(side, slot, evt) {
+  evt && evt.stopPropagation()
+  const picker = document.getElementById('slot-picker')
+  const sc = CHAMPS[DS[side].picks[slot]]
+  const rows = [0,1,2,3,4].map(i => {
+    if (i === slot) return ''
+    const nm = DS[side].names[i] || `${side === 'blue' ? 'Blue' : 'Red'} ${i + 1}`
+    const role = DS[side].roles[i] ? (ROLE_LABELS[DS[side].roles[i]] || '') : ''
+    const occ = DS[side].picks[i] ? CHAMPS[DS[side].picks[i]]?.name : ''
+    const lbl = `${nm.slice(0, 10)}${role ? ' · ' + role : ''}${occ ? ' ⇄ ' + occ : ''}`
+    return `<button class="sp-btn ${side === 'blue' ? 'b' : 'r'}" onclick="movePickTo('${side}',${slot},${i})">${esc(lbl)}</button>`
+  }).join('')
+  picker.innerHTML = `<div class="sp-title">Move ${sc?.name || ''} to:</div>
+    <div class="sp-col">${rows}</div>
+    <button class="sp-cancel" onclick="closeSlotPicker()">Cancel</button>`
+  picker.classList.remove('hidden')
+  if (evt) {
+    picker.style.left = Math.min(evt.clientX, window.innerWidth - 220) + 'px'
+    picker.style.top  = Math.min(evt.clientY + 8, window.innerHeight - 240) + 'px'
+  }
+}
+function movePickTo(side, from, to) {
+  const p = DS[side].picks
+  const tmp = p[to]; p[to] = p[from]; p[from] = tmp   // swap (tmp may be null = move)
+  closeSlotPicker(); render(); filterGrid()
+}
+window.openMovePick = openMovePick
+window.movePickTo = movePickTo
+
+function undoLast() {
+  if (!DS.history.length) return
+  const last = DS.history.pop()
+  DS[last.team][last.type==='ban'?'bans':'picks'][last.slot] = null
+  DS.step = last.step
+  render(); filterGrid()
+}
+window.undoLast = undoLast
+
+function resetDraft() {
+  banSideActive = null
+  _pendingAssign = null
+  closeSlotPicker()
+  document.getElementById('bsb-blue')?.classList.remove('active')
+  document.getElementById('bsb-red')?.classList.remove('active')
+  document.getElementById('ban-mode-hint').textContent = 'Select a side, then click champions to ban'
+  document.getElementById('save-draft-hdr')?.classList.add('hidden')
+  Object.assign(DS, {
+    step:0,
+    blue:{bans:Array(5).fill(null),picks:Array(5).fill(null),names:Array(5).fill(''),roles:[...ALL_ROLES]},
+    red: {bans:Array(5).fill(null),picks:Array(5).fill(null),names:Array(5).fill(''),roles:[...ALL_ROLES]},
+    history:[],
+  })
+  applyRosterToTeam()
+  updateBanCounts()
+  render(); filterGrid()
+}
+window.resetDraft = resetDraft
+
+function clearPick(side, slot, e) {
+  e.stopPropagation()
+  const team = DS[side]
+  if (!team.picks[slot]) return
+  team.picks[slot] = null
+  const hi = DS.history.findIndex(h=>h.team===side&&h.type==='pick'&&h.slot===slot)
+  if (hi!==-1) DS.history.splice(hi,1)
+  DS.step = DS.history.length ? DS.history[DS.history.length-1].step+1 : 0
+  render(); filterGrid()
+}
+window.clearPick = clearPick
+
+function setName(side, idx, val) { DS[side].names[idx] = val }
+window.setName = setName
+
+function getUsedIds() {
+  return [...DS.blue.bans,...DS.blue.picks,...DS.red.bans,...DS.red.picks].filter(Boolean)
+}
+
+// ── Suggestions ───────────────────────────────────────────────────────────
+
+// Signal 1: OP.GG pool — best familiarity among active players
+function bestFamiliarity(champId) {
+  let result = { score: 0, player: null, entry: null }
+  for (const p of roster) {
+    if (!p.active) continue
+    const entry = p.pool.find(e => e.championId === champId)
+    if (!entry) continue
+    let wr = entry.winRate
+    if (entry.recentGames >= 3) wr = Math.round(entry.winRate * 0.5 + entry.recentWR * 0.5)
+    const f = Math.min(1, entry.games / 40) * 0.6 + Math.max(0, (wr - 50) / 50) * 0.4
+    if (f > result.score) result = { score: f, player: p, entry }
+  }
+  return result
+}
+
+// Signal 2: Pro play presence — real tournament data (PRO), falling back to the
+// curated 0-3 META.pro field for champions not in the pro dataset.
+// proScore: overall contestedness (picks+bans). proPickScore: weighted toward
+// actual pro PICKS (champ is good to play). proBanScore: pro BAN priority.
+function proScore(champId) {
+  const pd = PRO[CHAMPS[champId]?.name]
+  if (pd) return Math.min(1, (pd.p + pd.b) / 70)   // ~70+ presence = max contestedness
+  return (TIER_DATA[champId]?.pro ?? 0) / 3
+}
+function proPickScore(champId) {
+  const pd = PRO[CHAMPS[champId]?.name]
+  if (pd) return Math.min(1, pd.p / 25)            // ~25 pro picks = top desirability
+  return (TIER_DATA[champId]?.pro ?? 0) / 3
+}
+function proBanScore(champId) {
+  const pd = PRO[CHAMPS[champId]?.name]
+  if (pd) return Math.min(1, pd.b / 45)            // ~45+ bans = never left open
+  return 0
+}
+
+// Signal 3: Comp need — pro draft principles: a primary carry, a frontline,
+// balanced AD/AP damage, an engage tool, and peel for a hypercarry.
+function compNeed(champ, allyPicks) {
+  if (!allyPicks.length) return 0.5
+  const allies = allyPicks.map(id => CHAMPS[id]).filter(Boolean)
+  const tags = allies.flatMap(c => c.tags)
+  const dmgs = allies.map(c => dmgType(c))
+  const hasAD = dmgs.some(d => d === 'AD' || d === 'mixed')
+  const hasAP = dmgs.some(d => d === 'AP' || d === 'mixed')
+  const myDmg = dmgType(champ)
+  const hasTank   = tags.includes('Tank')
+  const hasMarks  = tags.includes('Marksman')
+  const hasEngage = teamHas(allyPicks, ENGAGE)
+  const hasPeel   = teamHas(allyPicks, PEEL)
+  const hasHyper  = allies.some(c => SCALING.has(c.id) && c.tags.includes('Marksman'))
+
+  let need = 0.5
+  if (!hasMarks && champ.tags.includes('Marksman')) need = Math.max(need, 0.90) // primary carry
+  if (!hasTank && champ.tags.includes('Tank'))      need = Math.max(need, 0.90) // frontline
+  if (hasAD && !hasAP && myDmg === 'AP')            need = Math.max(need, 0.86) // AP to balance AD
+  if (hasAP && !hasAD && myDmg === 'AD')            need = Math.max(need, 0.86) // AD to balance AP
+  if (allyPicks.length >= 2 && !hasEngage && ENGAGE.has(champ.id)) need = Math.max(need, 0.82) // engage
+  if (hasHyper && !hasPeel && PEEL.has(champ.id))   need = Math.max(need, 0.84) // peel for the carry
+  if (!tags.includes('Support') && champ.tags.includes('Support') && allyPicks.length >= 3) need = Math.max(need, 0.78)
+  return need
+}
+
+// Signal 4: Counter score — class matchup (TAG_BEATS) sharpened by curated
+// champion-specific counters (COUNTERS). Returns 0.35–1.0.
+function counterScore(champ, enemyPicks) {
+  if (!enemyPicks.length) return 0.5
+  const eTags = enemyPicks.flatMap(id => CHAMPS[id]?.tags || [])
+  if (!eTags.length) return 0.5
+  let beats = 0, total = 0
+  for (const myTag of champ.tags) {
+    const beatable = TAG_BEATS[myTag] || []
+    for (const et of eTags) {
+      total++
+      if (beatable.includes(et)) beats++
+    }
+  }
+  let s = total > 0 ? 0.35 + (beats / total) * 0.65 : 0.5
+  // Specific hard counters carry the most weight — bonus per named matchup
+  const hardHits = (COUNTERS[champ.id] || []).filter(id => enemyPicks.includes(id)).length
+  if (hardHits) s = Math.min(1, s + 0.15 * hardHits)
+  return s
+}
+
+// The enemy champion in a given lane/role (the DIRECT lane opponent), if revealed.
+function laneOpponent(role, enemySide) {
+  const ids = DS[enemySide].picks
+  // Prefer an enemy assigned to this exact role slot, then a primary-role match.
+  const slot = DS[enemySide].roles.indexOf(role)
+  if (slot !== -1 && ids[slot] && primaryRole(ids[slot]) === role) return ids[slot]
+  const byPrimary = ids.find(id => id && primaryRole(id) === role)
+  if (byPrimary) return byPrimary
+  return ids.find(id => id && champRoles(id).has(role)) || null
+}
+// Direct 1v1 lane matchup, 0..1. Curated hard counters dominate; otherwise a
+// class-based read of who beats whom. 0.5 = even / unknown.
+function laneMatchupScore(myId, oppId) {
+  if (!oppId) return null
+  if ((COUNTERS[myId] || []).includes(oppId)) return 0.97      // we hard-counter them
+  if ((COUNTERS[oppId] || []).includes(myId)) return 0.12      // they hard-counter us
+  const me = CHAMPS[myId], opp = CHAMPS[oppId]
+  if (!me || !opp) return 0.5
+  let beats = 0, loses = 0
+  for (const t of me.tags)  { const b = TAG_BEATS[t] || []; for (const ot of opp.tags) if (b.includes(ot)) beats++ }
+  for (const ot of opp.tags){ const b = TAG_BEATS[ot] || []; for (const t of me.tags)  if (b.includes(t)) loses++ }
+  return Math.max(0.18, Math.min(0.92, 0.5 + (beats - loses) * 0.09))
+}
+
+// Champion names on a side that carry a given tag
+function namesWithTag(picks, tag) {
+  return picks.map(id => CHAMPS[id]).filter(c => c && c.tags.includes(tag)).map(c => c.name)
+}
+function joinNames(arr) {
+  if (arr.length === 1) return arr[0]
+  if (arr.length === 2) return `${arr[0]} and ${arr[1]}`
+  return `${arr.slice(0, -1).join(', ')}, and ${arr[arr.length - 1]}`
+}
+
+// Build the ▲/▼ reason chips shown on each suggestion (most informative first).
+function pickChips(champ, player, entry, allyPicks, enemyPicks, role) {
+  const chips = []
+  const solo = mainTab === 'solo'
+  const m = metaForRole(champ.id, role)
+  // Your comfort (OP.GG)
+  if (player && entry && entry.games >= 4) {
+    const who = solo ? 'you' : (player.display || player.name).split(' ')[0].toLowerCase().slice(0, 9)
+    chips.push({ t: `${entry.games}g ${entry.winRate}% ${who}`, p: entry.winRate >= 50 })
+  }
+  // Current-patch win rate in the role
+  if (m.wr !== null) chips.push({ t: `${m.wr}% WR ${PATCH}`, p: m.wr >= 50.5 })
+  // Pro priority — derived from real tournament data, shown generically (no counts)
+  const ps = proScore(champ.id)
+  if (ps >= 0.6) chips.push({ t: 'pro priority', p: true })
+  else if (ps >= 0.3) chips.push({ t: 'pro-proven', p: true })
+  // What our own match history says about this champ (learns as we save drafts)
+  if (player !== undefined) {
+    const rec = historyRecord(champ.id)
+    if (rec && rec.g >= 2) chips.push({ t: `${rec.w}-${rec.l} your games`, p: rec.wr >= 50 })
+  }
+  // Matchups
+  const strong = countersNamed(champ.id, enemyPicks)
+  if (strong.length) chips.push({ t: `strong vs ${strong[0]}`, p: true })
+  const cby = counteredByNames(champ.id, enemyPicks)
+  if (cby.length) chips.push({ t: `countered by ${cby[0]}`, p: false })
+  // Composition needs
+  const allies = allyPicks.map(id => CHAMPS[id]).filter(Boolean)
+  const aTags = allies.flatMap(c => c.tags)
+  const aDmg = allies.map(c => dmgType(c))
+  const myDmg = dmgType(champ)
+  if (allies.length >= 2 && aDmg.every(d => d === 'AD') && myDmg === 'AP') chips.push({ t: 'adds AP damage', p: true })
+  else if (allies.length >= 2 && aDmg.every(d => d === 'AP') && myDmg === 'AD') chips.push({ t: 'adds AD damage', p: true })
+  if (allies.length >= 2 && !aTags.includes('Tank') && champ.tags.includes('Tank')) chips.push({ t: 'adds frontline', p: true })
+  if (allies.length >= 2 && !teamHas(allyPicks, ENGAGE) && ENGAGE.has(champ.id)) chips.push({ t: 'adds engage', p: true })
+  else if (allies.length >= 2 && !teamHas(allyPicks, CC) && CC.has(champ.id)) chips.push({ t: 'adds CC', p: true })
+  const hasHyper = allies.some(c => SCALING.has(c.id) && c.tags.includes('Marksman'))
+  if (hasHyper && !teamHas(allyPicks, PEEL) && PEEL.has(champ.id)) chips.push({ t: 'peel for carry', p: true })
+  // Synergy with an ally already locked
+  const syn = synergyNames(champ.id, allyPicks)
+  if (syn.length) chips.push({ t: `synergy: ${syn[0]}`, p: true })
+  // Counterpick timing
+  if (role) {
+    const enemyInRole = enemyPicks.some(id => champRoles(id).has(role))
+    if (enemyInRole && strong.length) chips.push({ t: 'counterpick', p: true })
+    else if (!enemyInRole && enemyPicks.length <= 2) {
+      if (BLIND.has(champ.id)) chips.push({ t: 'safe blind', p: true })
+      else if (champ.tags.includes('Assassin')) chips.push({ t: 'risky blind', p: false })
+    }
+  }
+  return chips.slice(0, 5)
+}
+
+// Situational reasoning — WHY this pick is good right now, given the picks on
+// the board. No tier/meta/pro talk; everything references the live draft state.
+// histOk: include our learned match-history note (only for OUR own picks).
+function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk, laneOppId, laneRole) {
+  const solo = mainTab === 'solo'
+  const allyTags = allyPicks.flatMap(id => CHAMPS[id]?.tags || [])
+  const eTags = enemyPicks.flatMap(id => CHAMPS[id]?.tags || [])
+  const lines = []
+
+  // Comfort: who's good on it (in solo this is "you" = monkeydadam)
+  if (player && entry && entry.games >= 4) {
+    const wr = entry.winRate
+    const dn = player.display || player.name
+    const pname = solo ? 'You' : (dn.length > 12 ? dn.slice(0, 12) + '…' : dn)
+    const verb = solo ? 'have' : 'has'
+    let form = ''
+    if (entry.recentGames >= 3) form = ` (recent ${entry.recentGames}g ${entry.recentWR}%)`
+    lines.push(`${pname} ${verb} ${entry.games} games at ${wr}% WR on it${form}.`)
+  }
+
+  // Which enemies this champ's profile matches up well into
+  const beatTags = [...new Set(champ.tags.flatMap(t => TAG_BEATS[t] || []))]
+  const countered = [...new Set(
+    enemyPicks.map(id => CHAMPS[id]).filter(c => c && c.tags.some(t => beatTags.includes(t))).map(c => c.name)
+  )]
+  const eTanks = eTags.filter(t => t === 'Tank').length
+  const eAssassins = namesWithTag(enemyPicks, 'Assassin')
+  const eDivers = namesWithTag(enemyPicks, 'Fighter')
+
+  // Ally composition profile (for pro-style comp reasoning)
+  const allies = allyPicks.map(id => CHAMPS[id]).filter(Boolean)
+  const allyDmgs = allies.map(c => dmgType(c))
+  const allAD = allies.length >= 2 && allyDmgs.every(d => d === 'AD')
+  const allAP = allies.length >= 2 && allyDmgs.every(d => d === 'AP')
+  const myDmg = dmgType(champ)
+  const hasEngageAlly = teamHas(allyPicks, ENGAGE)
+  const hasPeelAlly = teamHas(allyPicks, PEEL)
+  const hasHyper = allies.some(c => SCALING.has(c.id) && c.tags.includes('Marksman'))
+
+  const hardCounters = countersNamed(champ.id, enemyPicks)
+
+  let ctx = ''
+  const laneOppName = laneOppId ? CHAMPS[laneOppId]?.name : null
+  const laneTag = (laneRole || '').toUpperCase()
+  // LANE OPPONENT matchup is the headline when it's revealed (top priority).
+  if (laneOppId && (COUNTERS[champ.id] || []).includes(laneOppId))
+    ctx = `Hard-counters ${laneOppName} in the ${laneTag} matchup — heavily in your favor.`
+  else if (laneOppId && (COUNTERS[laneOppId] || []).includes(champ.id))
+    ctx = `Loses the ${laneTag} lane to ${laneOppName} — only take it with jungle help or a role swap.`
+  // Specific, kit-driven counters elsewhere on the board
+  else if (hardCounters.length)
+    ctx = `Hard counters ${joinNames(hardCounters.slice(0, 2))} — a matchup that's heavily in your favor.`
+  // Counter-focused (most specific first)
+  else if ((champ.tags.includes('Marksman') || champ.tags.includes('Mage')) && eTanks >= 2)
+    ctx = `Enemy is stacking ${eTanks} tanks — your damage is what shreds that frontline in extended fights.`
+  else if (champ.tags.includes('Tank') && eAssassins.length)
+    ctx = `Soaks the burst from ${joinNames(eAssassins)} and keeps your carries alive.`
+  else if (champ.tags.includes('Tank') && eDivers.length && !allyTags.includes('Tank'))
+    ctx = `Gives you a frontline to absorb ${joinNames(eDivers)} instead of letting them reach your backline.`
+  else if (champ.tags.includes('Assassin') && eTags.includes('Marksman') && eTanks === 0)
+    ctx = `Their backline has no tank in front of it — you can dive ${joinNames(namesWithTag(enemyPicks, 'Marksman'))} directly.`
+  else if (countered.length)
+    ctx = `Favorable matchup into ${joinNames(countered.slice(0, 2))} on their side.`
+  // Comp-gap-focused
+  else if (allyPicks.length >= 2 && !allyTags.includes('Tank') && champ.tags.includes('Tank'))
+    ctx = `Your team has no frontline yet — this is the engage and peel you're missing.`
+  else if (allyPicks.length >= 2 && !allyTags.includes('Marksman') && !allyTags.includes('Mage') && (champ.tags.includes('Marksman') || champ.tags.includes('Mage')))
+    ctx = `Your team has no reliable damage source yet — this carries the DPS to actually close games.`
+  else if (allyPicks.length >= 3 && !allyTags.includes('Support') && champ.tags.includes('Support'))
+    ctx = `Adds the peel and CC your carries need to survive once fights break out.`
+  // Pro-style comp balance
+  else if (allAD && myDmg === 'AP')
+    ctx = `Your picks are all AD so far — this AP threat stops them from stacking armor to neutralize your damage.`
+  else if (allAP && myDmg === 'AD')
+    ctx = `Your picks are all AP so far — adding AD damage makes your comp far harder to itemize against.`
+  else if (allyPicks.length >= 2 && !hasEngageAlly && ENGAGE.has(champ.id))
+    ctx = `Gives your comp a hard engage — right now you have no reliable way to start a fight on your terms.`
+  else if (hasHyper && !hasPeelAlly && PEEL.has(champ.id))
+    ctx = `Protects your hypercarry with peel and CC so they can scale up and take over late.`
+  // Early board — only worth saying when it's genuinely a safe-blind / flex pick.
+  // Otherwise stay quiet rather than print generic filler.
+  else if (!enemyPicks.length && champRoles(champ.id).size >= 2)
+    ctx = `Flexes across roles — safe to open with since it hides your plan and stays strong whatever they pick.`
+  else if (!enemyPicks.length && BLIND.has(champ.id))
+    ctx = `Safe to open with — hard to hard-counter before you've seen their picks.`
+  // else: no real situational angle → leave ctx empty (no filler line)
+
+  if (ctx) lines.push(ctx)
+
+  // Synergy with an ally already locked, and caution if a locked enemy counters it
+  const synAllies = synergyNames(champ.id, allyPicks)
+  if (synAllies.length) lines.push(`Strong synergy with your ${joinNames(synAllies.slice(0, 2))}.`)
+  const cBy = counteredByNames(champ.id, enemyPicks).filter(n => n !== laneOppName)
+  if (cBy.length) lines.push(`Watch out — ${joinNames(cBy.slice(0, 2))} counters it in lane.`)
+
+  // Learned from our own saved drafts (grows as match history is built)
+  if (histOk) {
+    const hr = historyRecord(champ.id)
+    if (hr && hr.g >= 2) {
+      const tone = hr.wr >= 50 ? 'a strong record' : 'a losing record'
+      lines.push(`Your saved drafts show ${tone}: ${hr.w}-${hr.l} (${hr.wr}%) on it.`)
+    }
+  }
+
+  return lines.join(' ')
+}
+
+// Situational ban reasoning — WHY removing this helps your comp right now.
+function generateBanReason(champ, allyPicks) {
+  const allyTags = allyPicks.flatMap(id => CHAMPS[id]?.tags || [])
+  const backline = allyTags.filter(t => t === 'Mage' || t === 'Marksman').length
+
+  // Does this ban target hard-counter something you've already locked?
+  const beatsOurs = countersNamed(champ.id, allyPicks)
+  if (beatsOurs.length)
+    return `Hard-counters your ${joinNames(beatsOurs.slice(0, 2))} — banning it protects a pick you've already committed.`
+
+  // High pro-priority ban — flexible / high-impact champ teams won't leave open.
+  if (proBanScore(champ.id) >= 0.6)
+    return `High-priority meta ban — flexible and high-impact across roles, the kind of pick strong teams refuse to leave open. Hard to deal with once it's on the board.`
+
+  if (allyPicks.length >= 2) {
+    if (champ.tags.includes('Assassin') && backline >= 2)
+      return `You've committed ${backline} squishy carries and no way to peel a fed assassin — take it off the board.`
+    if (champ.tags.includes('Fighter') && !allyTags.includes('Tank'))
+      return `You have no frontline to body-block it, so it runs straight at your carries — ban it before it's a problem.`
+    if (champ.tags.includes('Tank') && allyTags.includes('Mage') && !allyTags.includes('Marksman'))
+      return `Your poke comp has no sustained DPS to punish a big frontline — this would just soak it all game.`
+    if (champ.tags.includes('Mage') && allyTags.includes('Assassin') && !allyTags.includes('Tank'))
+      return `Out-ranges your assassins and they can't engage into the CC — deny it to keep your engage clean.`
+  }
+  if (allyPicks.length >= 1 && champ.tags.includes('Assassin'))
+    return `High-snowball threat that punishes your squishies if it gets ahead — safer to remove it now.`
+  return `Flexible, low-counterplay pick — deny it before the enemy can lock it into a strong matchup.`
+}
+
+// ── Draft History ──────────────────────────────────────────────────────────
+const HISTORY_KEY = 'kqf_draft_history_v1'
+
+function historyLoad() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [] } catch { return [] }
+}
+
+function historySave(entry) {
+  const h = historyLoad()
+  h.unshift(entry)
+  if (h.length > 60) h.splice(60)
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch {}
+  _histCache = null   // re-learn from the updated record
+}
+
+// ── Learning from our own match history ──────────────────────────────────────
+// Dissects every saved win/loss draft (from OUR side) into three records:
+//   champ  — how each champion performs for us
+//   pair   — which of our champions win together (learned synergy)
+//   vs     — which of our champions beat specific enemy champions (learned counters)
+// Recomputed lazily and cached; invalidated whenever a draft is saved/deleted.
+let _histCache = null
+function historyStats() {
+  if (_histCache) return _histCache
+  const champ = {}, pair = {}, vs = {}
+  const bump = (o, k, win) => { (o[k] = o[k] || { w:0, l:0 })[win ? 'w' : 'l']++ }
+  for (const d of historyLoad()) {
+    if (d.result !== 'win' && d.result !== 'loss') continue
+    const our = d.ourSide || 'blue', them = our === 'blue' ? 'red' : 'blue'
+    const win = d.result === 'win'
+    const ourP = (d[our]?.picks || []).filter(Boolean)
+    const enemyP = (d[them]?.picks || []).filter(Boolean)
+    for (const a of ourP) {
+      bump(champ, a, win)
+      for (const b of ourP) if (a < b) bump(pair, a + '|' + b, win)
+      for (const e of enemyP) bump(vs, a + '>' + e, win)
+    }
+  }
+  _histCache = { champ, pair, vs }
+  return _histCache
+}
+// Our win/loss record on a champion (by id) — drives the visible "your games" note.
+function historyRecord(champId) {
+  const name = CHAMPS[champId]?.name; if (!name) return null
+  const r = historyStats().champ[name]; if (!r) return null
+  const g = r.w + r.l
+  return { w:r.w, l:r.l, g, wr: g ? Math.round(r.w / g * 100) : 0 }
+}
+// Net learning bonus: our champ WR + synergy with locked allies + edge vs locked
+// enemies. Bounded so a few games nudge, they don't dominate. Grows with our data.
+function historyBoost(champId) {
+  const name = CHAMPS[champId]?.name; if (!name) return 0
+  const S = historyStats()
+  let boost = 0
+  const r = S.champ[name]
+  if (r && r.w + r.l >= 2) boost += Math.max(-0.10, Math.min(0.12, (r.w - r.l) / 12))
+  const allies = DS[mySide].picks.filter(Boolean).map(id => CHAMPS[id]?.name).filter(Boolean)
+  for (const a of allies) {
+    const pr = S.pair[name < a ? name + '|' + a : a + '|' + name]
+    if (pr && pr.w + pr.l >= 2) boost += Math.min(0.06, (pr.w - pr.l) / 20)
+  }
+  const enemies = DS[otherSide()].picks.filter(Boolean).map(id => CHAMPS[id]?.name).filter(Boolean)
+  for (const e of enemies) {
+    const vr = S.vs[name + '>' + e]
+    if (vr && vr.w + vr.l >= 2) boost += Math.min(0.06, (vr.w - vr.l) / 20)
+  }
+  return Math.max(-0.12, Math.min(0.20, boost))
+}
+
+function buildDraftSnapshot() {
+  // The actual pick/ban sequence in draft order (for ranked5 analysis), built from
+  // the live action log so it reflects exactly how the draft unfolded.
+  const sequence = DS.history.map(h => ({
+    team: h.team,
+    type: h.type,
+    champ: CHAMPS[DS[h.team][h.type === 'ban' ? 'bans' : 'picks'][h.slot]]?.name ?? null,
+  })).filter(s => s.champ)
+  return {
+    date: new Date().toISOString(),
+    mode: mainTab,
+    ourSide: mySide,
+    sequence,
+    blue: {
+      picks: DS.blue.picks.map(id => CHAMPS[id]?.name ?? null),
+      bans:  DS.blue.bans.map(id => CHAMPS[id]?.name ?? null),
+      names: [...DS.blue.names],
+      roles: [...DS.blue.roles],
+    },
+    red: {
+      picks: DS.red.picks.map(id => CHAMPS[id]?.name ?? null),
+      bans:  DS.red.bans.map(id => CHAMPS[id]?.name ?? null),
+      names: [...DS.red.names],
+      roles: [...DS.red.roles],
+    },
+    result: null,
+    notes: '',
+  }
+}
+
+function openSaveDraft() {
+  document.getElementById('history-modal').classList.remove('hidden')
+  document.getElementById('history-save-panel').classList.remove('hidden')
+  document.getElementById('history-view-panel').classList.add('hidden')
+  document.getElementById('hist-modal-title').textContent = 'SAVE DRAFT'
+  const inp = document.getElementById('draft-notes-input')
+  if (inp) inp.value = ''
+}
+
+function closeSaveModal() {
+  document.getElementById('history-modal').classList.add('hidden')
+}
+
+function confirmSaveDraft(result) {
+  const notes = document.getElementById('draft-notes-input')?.value || ''
+  const entry = buildDraftSnapshot()
+  entry.result = result
+  entry.notes = notes
+  historySave(entry)
+  closeSaveModal()
+  const btn = document.getElementById('save-draft-btn')
+  if (btn) { btn.textContent = result === 'win' ? '✓ Win Saved' : '✓ Loss Saved'; btn.disabled = true }
+}
+
+function openHistory() {
+  document.getElementById('history-modal').classList.remove('hidden')
+  document.getElementById('history-save-panel').classList.add('hidden')
+  document.getElementById('history-view-panel').classList.remove('hidden')
+  document.getElementById('hist-modal-title').textContent = 'DRAFT HISTORY'
+  renderHistoryList()
+}
+
+function renderHistoryList() {
+  const h = historyLoad()
+  const el = document.getElementById('history-list')
+  if (!h.length) { el.innerHTML = '<div class="empty-msg">No drafts saved yet.</div>'; return }
+  el.innerHTML = h.map((d, i) => {
+    const date = new Date(d.date).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+    const res = d.result === 'win' ? '<span style="color:var(--green)">W</span>'
+              : d.result === 'loss' ? '<span style="color:var(--red)">L</span>'
+              : '<span style="color:var(--gray)">?</span>'
+    const ours = d.ourSide || 'blue'
+    const sideTag = (s) => s === ours ? ' <span class="hist-ustag">US</span>' : ''
+    const list = a => (a || []).filter(Boolean).join(', ') || '—'
+    const bBans = list(d.blue?.bans), rBans = list(d.red?.bans)
+    const bPicks = list(d.blue?.picks), rPicks = list(d.red?.picks)
+    const showBans = d.mode === 'ranked5' || (d.blue?.bans||[]).some(Boolean) || (d.red?.bans||[]).some(Boolean)
+
+    // Pick/ban order — only saved for structured (ranked5) drafts.
+    let orderHtml = ''
+    if (d.sequence && d.sequence.length) {
+      const steps = d.sequence.map((s, n) => {
+        const sideCls = s.team === 'blue' ? 'b' : 'r'
+        const kind = s.type === 'ban' ? 'BAN' : 'PICK'
+        return `<span class="seq-step ${sideCls}" title="${s.team} ${kind}">${kind === 'BAN' ? '🚫' : ''}${esc(s.champ)}</span>`
+      }).join('<span class="seq-arrow">→</span>')
+      orderHtml = `<details class="hist-order"><summary>Pick / ban order (${d.sequence.length} steps)</summary><div class="seq-flow">${steps}</div></details>`
+    }
+
+    return `<div class="hist-entry">
+      <div class="hist-header">
+        <span class="hist-date">${date}</span>
+        <span class="hist-mode">${(d.mode||'').toUpperCase()}</span>
+        <span class="hist-res">${res}</span>
+        <button class="btn" style="font-size:9px;padding:2px 7px;margin-left:auto" onclick="deleteHistory(${i})">Del</button>
+      </div>
+      ${showBans ? `<div class="hist-line"><span class="hist-tag ban">Blue bans</span> ${bBans}</div>
+      <div class="hist-line"><span class="hist-tag ban">Red bans</span> ${rBans}</div>` : ''}
+      <div class="hist-line"><span class="hist-tag b">Blue${sideTag('blue')}</span> ${bPicks}</div>
+      <div class="hist-line"><span class="hist-tag r">Red${sideTag('red')}</span> ${rPicks}</div>
+      ${orderHtml}
+      ${d.notes?`<div class="hist-notes">${esc(d.notes)}</div>`:''}
+    </div>`
+  }).join('')
+}
+
+function deleteHistory(idx) {
+  const h = historyLoad()
+  h.splice(idx, 1)
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch {}
+  _histCache = null   // re-learn from the updated record
+  renderHistoryList()
+}
+
+window.openSaveDraft = openSaveDraft
+window.closeSaveModal = closeSaveModal
+window.confirmSaveDraft = confirmSaveDraft
+window.openHistory = openHistory
+window.deleteHistory = deleteHistory
+
+// A champion's primary role (highest-WR patch role, else first listed role)
+function primaryRole(champId) {
+  const td = TIER_DATA[champId] || {}
+  if (td.patch) {
+    let best = null, bw = -1
+    for (const r in td.patch) if (td.patch[r][0] > bw) { bw = td.patch[r][0]; best = r }
+    if (best) return best
+  }
+  if (td.roles && td.roles.length) return td.roles[0]
+  const it = champRoles(champId).values().next()
+  return it.done ? null : it.value
+}
+// Roles a side has already filled (by each picked champion's primary role)
+function filledRoles(side) {
+  const set = new Set()
+  for (const id of DS[side].picks) if (id) { const r = primaryRole(id); if (r) set.add(r) }
+  return set
+}
+function openRolesFor(side) {
+  const filled = filledRoles(side)
+  return ALL_ROLES.filter(r => !filled.has(r))
+}
+// Which slot a drafted champion belongs in — its role's player slot (so an ADC
+// like Miss Fortune lands on the ADC player, not wherever the pick order points).
+function roleSlotFor(side, id) {
+  const roles = DS[side].roles, picks = DS[side].picks
+  const open = r => { const i = roles.indexOf(r); return (i !== -1 && !picks[i]) ? i : -1 }
+  let i = open(primaryRole(id))               // ideal: champion's main role
+  if (i !== -1) return i
+  for (const r of champRoles(id)) { i = open(r); if (i !== -1) return i }  // any role it plays
+  i = picks.indexOf(null)                      // fallback: first free slot
+  return i !== -1 ? i : 0
+}
+// The roles suggestions should cover right now — pro drafting fills the BEST
+// pick across whatever roles are still open, not a fixed top→support order.
+function targetRoles() {
+  if (mainTab === 'solo') return [soloRole]
+  // We always draft for OUR side — suggest across the roles we still have open,
+  // regardless of who is on the clock (so the panel previews our next pick too).
+  const open = openRolesFor(mySide)
+  return open.length ? open : ALL_ROLES
+}
+
+function getSuggestions() {
+  const ourPicks = DS[mySide].picks.filter(Boolean)
+  const theirPicks = DS[otherSide()].picks.filter(Boolean)
+  const used = new Set(getUsedIds())
+
+  // Solo Queue: recommend from one player's own pool for their role
+  if (mainTab === 'solo') return getSoloSuggestions(ourPicks, theirPicks, used)
+
+  // PICK suggestions are for whoever is on the clock (default: us). Bans always
+  // protect OUR draft, so they stay in our perspective regardless.
+  const order = getActiveDraftOrder()
+  const onClock = DS.step < order.length ? order[DS.step] : null
+  const forSide = onClock ? onClock.team : mySide
+  const isOurs  = forSide === mySide
+  const pAlly  = isOurs ? ourPicks : theirPicks     // picking side's own picks
+  const pEnemy = isOurs ? theirPicks : ourPicks     // the side they're up against
+  const roles  = openRolesFor(forSide)
+  const useRoles = roles.length ? roles : ALL_ROLES
+  const picks = [], bans = []
+
+  // Equal-weight core signals, but let the SPECIFIC draft decide emphasis:
+  //   • mastery / solo-queue WR / pro presence are flat baseline strength
+  //   • comp-fit grows as the picking side reveals what it still needs
+  //   • counter grows sharply as the opponent reveals targets to punish
+  // Our roster mastery ONLY applies when WE pick — for predicting the enemy's
+  // picks we drop familiarity entirely and lean on meta + pro + counter.
+  // PRIORITY (per user): 1) the direct LANE-OPPONENT matchup, 2) comp fit + the
+  // OTHER enemy champs, then baseline strength (mastery / solo-WR / pro). Lane
+  // weight only applies once the lane opponent is revealed; until then we lean on
+  // strength + draftability (safe-blind / flex). Our roster mastery only counts
+  // when WE pick — for predicting the enemy's picks we drop familiarity.
+  const aC = pAlly.length
+  const enemySide = isOurs ? otherSide() : mySide
+  const W = isOurs
+    ? { fam:0.16, meta:0.14, pro:0.12, synBase:0.06 }
+    : { fam:0.00, meta:0.26, pro:0.22, synBase:0.04 }
+
+  // Draftability context: can the OPPONENT still answer a lane we pick now? If they
+  // have picks left and the role open, our pick is EXPOSED to a counter — so favor
+  // flexible / blind-safe champs and avoid telegraphing a counterable pick.
+  const oppOfForSide = forSide === 'blue' ? 'red' : 'blue'
+  const oppPicksLeft = onClock ? order.slice(DS.step).filter(s => s.type === 'pick' && s.team === oppOfForSide).length : 0
+  const oppOpenRoles = openRolesFor(oppOfForSide)
+
+  for (const c of CHAMP_LIST) {
+    if (used.has(c.id)) continue
+    const proSc   = proScore(c.id)
+    const comp    = compNeed(c, pAlly)
+    let { score: famScore, player, entry } = bestFamiliarity(c.id)
+    if (!isOurs) { famScore = 0; player = null; entry = null }  // enemy: ignore our roster
+    const histBonus = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? historyBoost(c.id) : 0
+
+    // PICKS — champ must be able to fill one of the OPEN roles; score it in its
+    // strongest open role (so it competes across every role still needed).
+    const cr = champRoles(c.id)
+    const openMatch = useRoles.filter(r => cr.has(r))
+    if (openMatch.length) {
+      // Choose the role to suggest in: best meta WEIGHTED BY how much it's actually
+      // a role the champ plays — primary roles dominate, off-roles are discounted.
+      let role = openMatch[0], m = metaForRole(c.id, role), fit = roleFit(c.id, role)
+      let bestAdj = m.score * fit
+      for (const r of openMatch) {
+        const mm = metaForRole(c.id, r), fr = roleFit(c.id, r), adj = mm.score * fr
+        if (adj > bestAdj) { bestAdj = adj; m = mm; role = r; fit = fr }
+      }
+      const syn = synergyScore(c.id, pAlly)
+      const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy).length * 0.08)
+
+      // #1 LANE MATCHUP — the single biggest factor once the lane opponent is known.
+      const laneOpp = laneOpponent(role, enemySide)
+      const lane = laneMatchupScore(c.id, laneOpp)        // null until opp revealed
+      // #2 the OTHER enemy champs (everyone except the lane opp) + comp fit.
+      const otherEnemies = pEnemy.filter(id => id !== laneOpp)
+      const others = otherEnemies.length ? counterScore(c, otherEnemies) : 0.5
+
+      // DRAFTABILITY / pick timing — only when the lane opp ISN'T revealed yet. If
+      // the opponent can still answer this lane, the pick is EXPOSED: reward
+      // flexible & blind-safe champs, punish fragile/narrow ones we'd telegraph.
+      const counterLane = (role === 'top' || role === 'mid')
+      const exposed = !laneOpp && oppPicksLeft > 0 && oppOpenRoles.includes(role)
+      let timing = 0
+      if (exposed) {
+        if (BLIND.has(c.id)) timing += counterLane ? 0.07 : 0.11
+        if (cr.size >= 2) timing += 0.07                              // flex hides our lane
+        if (cr.size >= 3) timing += 0.04
+        if (!BLIND.has(c.id) && cr.size < 2) timing -= 0.08          // narrow + exposable
+        if (c.tags.includes('Assassin')) timing -= counterLane ? 0.08 : 0.05
+        timing -= Math.min(0.10, counterRiskCount(c.id) * 0.015)     // many known counters
+      }
+      // Off-role discount so a champ out of its main role can't beat a comparable
+      // champ playing where it actually belongs.
+      const offRolePen = (1 - fit) * 0.16
+      // Weights: lane matchup dominates (#1); comp fit + other enemies next (#2);
+      // mastery / solo-WR / pro are the baseline. Recomputed on every pick & ban.
+      const wLane   = laneOpp ? 0.30 : 0
+      const wComp   = (laneOpp ? 0.16 : 0.22) + 0.06 * (aC / 5)
+      const wOthers = 0.12 * (otherEnemies.length / 4)
+      const wSyn    = W.synBase + 0.04 * (aC / 5)
+      const proPk = proPickScore(c.id)
+      const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
+                  + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
+                  + timing + histBonus - cByPen - offRolePen
+      const sc100 = Math.max(0, Math.round(score * 100))
+      const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role)
+      const offTag = fit < 0.6 ? ' · off-role' : ''
+      const sub = (m.wr !== null ? `${role.toUpperCase()} ${m.wr}% WR · ${PATCH}` : role.toUpperCase()) + offTag
+      picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
+    }
+
+    // BANS — always our perspective. DON'T ban the strongest champion; ban what
+    // BREAKS OUR draft: counters our picks / win condition, then answers for the
+    // enemy's UNREVEALED roles (second-ban-phase), with raw strength last.
+    const threatToUs = counterScore(c, ourPicks)
+    const mBest = metaForRole(c.id, null)
+    const prScore = mBest.pr !== null ? Math.min(1, mBest.pr / 15) : 0.35
+    // Hard-counters a champion we've already locked → top deny priority
+    const breaksUs = ourPicks.filter(a => (COUNTERS[c.id] || []).includes(a)).length
+    const breakBonus = Math.min(0.22, breaksUs * 0.12)
+    // Second ban phase: shrink the enemy's draft tree — answers for roles they haven't shown
+    const enemyOpen = openRolesFor(otherSide())
+    const fillsEnemyOpen = theirPicks.length >= 1
+      && [...champRoles(c.id)].some(r => enemyOpen.includes(r))
+    const openBonus = fillsEnemyOpen ? 0.12 : 0
+    // Pro ban priority — flexible / high-impact champs teams refuse to leave open.
+    // Protecting our locked picks grows as we commit more of our comp.
+    const proBan = proBanScore(c.id)
+    const protectW = 0.22 + 0.14 * (ourPicks.length / 5)
+    const banScore = threatToUs * protectW + breakBonus + openBonus
+                   + mBest.score * 0.18 + proBan * 0.18 + prScore * 0.08
+    const banSub = mBest.wr !== null ? `${mBest.wr}% WR` : 'Ban target'
+    bans.push({ id: c.id, score: Math.round(banScore * 100), reason: generateBanReason(c, ourPicks), sub: banSub })
+  }
+
+  picks.sort((a, b) => b.score - a.score)
+  bans.sort((a, b) => b.score - a.score)
+  return { picks: picks.slice(0, 10), bans: bans.slice(0, 8), roles: useRoles, isOurs, forSide }
+}
+
+// Solo Queue recommendations — best champ for SOLO_PLAYER to lock in, drawn
+// from their own pool, weighted to the chosen role and the live matchup.
+function getSoloSuggestions(allyPicks, enemyPicks, used) {
+  const me = roster.find(p => p.name === SOLO_PLAYER)
+  const pool = (me?.pool || []).filter(e => !used.has(e.championId) && CHAMPS[e.championId])
+  const roleTags = ROLE_TAGS[soloRole] || []
+  const picks = []
+
+  for (const e of pool) {
+    const c = CHAMPS[e.championId]
+    const inRole = champRoles(c.id).has(soloRole) || roleTags.some(t => c.tags.includes(t))
+    // Familiarity from this player's own games + win rate (blended with recent form)
+    let ewr = e.winRate
+    if (e.recentGames >= 3) ewr = Math.round(e.winRate * 0.5 + e.recentWR * 0.5)
+    const fam     = Math.min(1, (e.games / 25) * 0.6 + (ewr / 100) * 0.4)
+    const counter = counterScore(c, enemyPicks)
+    const comp    = compNeed(c, allyPicks)
+    const m       = metaForRole(c.id, soloRole)   // current-patch strength in the role
+    const syn = synergyScore(c.id, allyPicks)
+    const cByPen = Math.min(0.15, counteredByNames(c.id, enemyPicks).length * 0.08)
+    let score = fam * 0.40 + counter * 0.24 + m.score * 0.14 + comp * 0.12 + syn * 0.10 - cByPen
+    if (!inRole) score *= 0.4          // strongly de-prioritise off-role comfort picks
+    const sc100 = Math.max(0, Math.round(score * 100))
+    const reason = generatePickReason(c, me, e, allyPicks, enemyPicks)
+    const sub = m.wr !== null ? `${m.wr}% WR · ${PATCH}${inRole ? '' : ' · off-role'}` : (inRole ? '' : 'off-role')
+    picks.push({ id: c.id, score: sc100, reason, sub, inRole, verdict: pickVerdict(sc100) })
+  }
+
+  picks.sort((a, b) => b.score - a.score)
+  if (picks.length) picks[0].best = true
+  return { picks: picks.slice(0, 8), bans: [], roles: [soloRole] }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+function render() {
+  renderPhase()
+  renderTeam('blue')
+  renderTeam('red')
+  renderSuggestions()
+  renderComp()
+  updateBanCounts()
+}
+
+function renderPhase() {
+  // Solo: no draft phases — show whose pick we're optimizing for
+  if (mainTab === 'solo') {
+    const b = document.getElementById('phase-badge')
+    b.textContent = `SOLO — ${soloRole.toUpperCase()}`
+    b.className = 'phase-badge pick'
+    const np = DS.blue.picks.filter(Boolean).length + DS.red.picks.filter(Boolean).length
+    document.getElementById('turn-lbl').textContent =
+      np ? `${np} champ${np>1?'s':''} on the board` : 'Add picks as they happen'
+    return
+  }
+  const order = getActiveDraftOrder()
+  const done = DS.step >= order.length
+  if (done) {
+    const b = document.getElementById('phase-badge')
+    b.textContent = 'DRAFT COMPLETE'; b.className = 'phase-badge done'
+    const lbl = document.getElementById('turn-lbl')
+    lbl.textContent = ''
+    if (mainTab === 'ranked5' || mainTab === 'flex') {
+      const hdrBtn = document.getElementById('save-draft-hdr')
+      if (hdrBtn) hdrBtn.classList.remove('hidden')
+    }
+    return
+  }
+  const step = order[DS.step]
+  const isBanStep = step.type === 'ban'
+  const phaseNum = mainTab === 'ranked5'
+    ? (DS.step < 6 ? 1 : DS.step < 12 ? 1 : 2)
+    : 1
+  const b = document.getElementById('phase-badge')
+  // For solo/flex with bans on: show "BAN FILL" while in ban mode, else PICK PHASE
+  if (mainTab !== 'ranked5' && bansEnabled && banSideActive) {
+    b.textContent = `FILLING ${banSideActive.toUpperCase()} BANS`
+    b.className = 'phase-badge ban'
+    document.getElementById('turn-lbl').textContent = 'Click champions below to ban'
+  } else {
+    b.textContent = isBanStep ? `BAN PHASE ${phaseNum}` : `PICK PHASE ${phaseNum}`
+    b.className = `phase-badge ${step.type}`
+    document.getElementById('turn-lbl').textContent =
+      `${step.team.toUpperCase()} — ${step.type.toUpperCase()} ${step.slot + 1}`
+  }
+}
+
+function renderTeam(side) {
+  const team = DS[side]
+  const _order = getActiveDraftOrder()
+  const step = DS.step < _order.length ? _order[DS.step] : null
+  const canClearBans = mainTab !== 'ranked5' && bansEnabled
+  const isBanSideActive = banSideActive === side
+  let html = ''
+  if (mainTab === 'solo') {
+    // Two clean columns — blue = your team, red = enemy. Click champs to log them.
+    html += `<div class="team-hdr ${side==='blue'?'b':'r'}">${side==='blue'?'YOUR TEAM':'ENEMY'}</div>`
+    let any = false
+    for (let i=0;i<5;i++) {
+      const cid = team.picks[i], c = cid ? CHAMPS[cid] : null
+      if (!c) continue
+      any = true
+      html += `<div class="player-row ${side}">
+        <div class="pick-portrait"><img src="${c.img}" alt="${c.name}"/></div>
+        <div class="player-info"><div class="champ-label">${c.name}</div></div>
+        <button class="clear-pick" onclick="clearPick('${side}',${i},event)">✕</button>
+      </div>`
+    }
+    if (!any) html += `<div class="empty-msg" style="padding:8px 4px">${side===soloSide?"Click champions to add them here.":"—"}</div>`
+    document.getElementById(`${side}-col`).innerHTML = html
+    return
+  }
+  if (bansEnabled) {
+    html += '<div class="ban-row">'
+    for (let i=0;i<5;i++) {
+      const cid = team.bans[i], c = cid ? CHAMPS[cid] : null
+      const isActive = step?.team===side && step?.type==='ban' && step?.slot===i
+      const isFillActive = isBanSideActive && !c
+      if (c) {
+        const xBtn = canClearBans
+          ? `<button class="ban-slot-x" onclick="clearBan('${side}',${i},event)">✕</button>` : ''
+        html += `<div class="ban-slot ${isActive?'active':''}" style="position:relative">
+          <img src="${c.img}" title="Ban: ${c.name}"/>${xBtn}</div>`
+      } else {
+        html += `<div class="ban-slot empty ${isActive||isFillActive?'active':''}">✕</div>`
+      }
+    }
+    html += '</div>'
+  }
+
+  for (let i=0;i<5;i++) {
+    const cid = team.picks[i], c = cid ? CHAMPS[cid] : null
+    // Picks snap to role slots, so highlight every open slot of the team on the clock
+    const isPickActive = step?.team===side && step?.type==='pick' && !c
+    const name = team.names[i] || `Player ${i+1}`
+    const roleStr = team.roles[i]
+    const roleHtml = roleStr ? `<span class="role-tag ${side==='red'?'r':''}">${ROLE_LABELS[roleStr]||roleStr}</span>` : ''
+    const portrait = c ? `<img src="${c.img}" alt="${c.name}"/>` : (isPickActive ? '?' : '')
+    const champName = c ? `<div class="champ-label">${c.name}</div>` : ''
+    // Move a pick to another role/slot — champs are sometimes played off-role.
+    const move = c ? `<button class="move-pick" onclick="openMovePick('${side}',${i},event)" title="Move to another role/slot">⇄</button>` : ''
+    const clear = c ? `<button class="clear-pick" onclick="clearPick('${side}',${i},event)">✕</button>` : ''
+    html+=`<div class="player-row ${side}${isPickActive?' active-pick':''}">
+      <div class="pick-portrait">${portrait}</div>
+      <div class="player-info">
+        <div class="player-name"><input value="${esc(name)}" placeholder="Summoner" onchange="setName('${side}',${i},this.value)" onclick="event.stopPropagation()"/></div>
+        <div style="display:flex;gap:4px;align-items:center;margin-top:2px">${roleHtml}${champName}</div>
+      </div>
+      <div class="row-btns">${move}${clear}</div>
+    </div>`
+  }
+  document.getElementById(`${side}-col`).innerHTML = html
+}
+
+function renderSuggestions() {
+  const sug = getSuggestions()
+  // In Ranked 5's, follow the live draft phase (ban vs pick) automatically.
+  let effTab = 'picks'
+  if (mainTab === 'ranked5') {
+    const order = getActiveDraftOrder()
+    if (DS.step < order.length && order[DS.step].type === 'ban') effTab = 'bans'
+  }
+  const items = effTab==='bans' ? sug.bans : sug.picks
+  const isBan = effTab==='bans'
+  let html = ''
+  // Header reflects the current phase
+  if (isBan)
+    html += `<div class="sug-role-hdr">🚫 <b>Ban phase</b> · biggest threats · patch ${PATCH}</div>`
+  else {
+    const rolesArr = sug.roles || []
+    const label = rolesArr.length === 1 ? rolesArr[0].toUpperCase()
+                : rolesArr.length ? 'open: ' + rolesArr.map(r => r.toUpperCase()).join(', ')
+                : 'all roles filled'
+    // When it's the enemy on the clock, the panel PREDICTS their pick (meta/pro
+    // based, no roster), so label it clearly as opponent-side.
+    const lead = sug.isOurs === false ? '🔮 Enemy likely' : 'Best picks'
+    html += `<div class="sug-role-hdr">${lead} · <b>${label}</b> · patch ${PATCH}</div>`
+  }
+  items.forEach((s,i) => {
+    const c = CHAMPS[s.id]; if(!c) return
+    const v = s.verdict
+    const scoreColor = v ? v.color : (s.score>=78?'var(--green)':s.score>=60?'var(--gold)':'var(--gray)')
+    const badge = s.best ? `<span class="best-badge">BEST</span>` : ''
+    const verdictTag = (!isBan && v) ? `<span class="verdict-tag" style="color:${v.color};border-color:${v.color}55">${v.label}</span>` : ''
+    html+=`<div class="sug-item ${isBan?'ban':'pick'}${s.best?' best':''}" onclick="selectChamp(${s.id},event)" title="Click to add ${esc(c.name)} to the draft">
+      <div class="sug-top">
+        <span class="sug-num">${i+1}</span>
+        <div class="sug-img"><img src="${c.img}" alt="${c.name}"/></div>
+        <div class="sug-info">
+          <div class="sug-name">${esc(c.name)}${badge}${verdictTag}</div>
+          <div class="sug-sub ${isBan?'r':''}">${esc(s.sub||'')}</div>
+        </div>
+        <span class="sug-score" style="color:${scoreColor}">${s.score}</span>
+      </div>
+      ${s.reason?`<div class="sug-reason">${s.reason}</div>`:''}
+    </div>`
+  })
+  const empty = mainTab === 'solo'
+    ? `<div class="empty-msg">No champions in ${(roster.find(p=>p.name===SOLO_PLAYER)?.display)||SOLO_PLAYER}'s pool for ${soloRole.toUpperCase()} yet. Pick a different role, or load their OP.GG pool.</div>`
+    : '<div class="empty-msg">Loading champion data…</div>'
+  document.getElementById('sug-list').innerHTML = html || empty
+  filterGrid()
+}
+
+function bar(l,v,c){return`<div class="bar-row"><span class="bar-lbl">${l}</span><div class="bar-bg"><div class="bar-fill" style="width:${v}%;background:${c}"></div></div><span class="bar-val">${v}</span></div>`}
+
+function getWinCons(side) {
+  const picks = DS[side].picks.filter(Boolean).map(id => CHAMPS[id]).filter(Boolean)
+  if (!picks.length) return []
+  const tags = picks.flatMap(c => c.tags)
+  const tc = {}; for (const t of tags) tc[t] = (tc[t]||0)+1
+  const arch = domArch(tc)
+  const wcs = []
+  if ((tc.Tank||0) >= 2 || arch === 'engage')
+    wcs.push('Engage: hit a clean AoE engage and win teamfights at objectives')
+  if ((tc.Mage||0) >= 2 && !(tc.Tank||0) || arch === 'poke')
+    wcs.push('Poke: whittle enemies below 50% HP before any teamfight starts')
+  if ((tc.Assassin||0) >= 2 || arch === 'assassin')
+    wcs.push('Picks: assassinate isolated targets to snowball leads and control vision')
+  if (tc.Support && tc.Tank && tc.Marksman || arch === 'peel')
+    wcs.push('Protect the carry: peel for your ADC and let them scale to win')
+  if (!wcs.length) {
+    if (arch === 'scaling') wcs.push('Scale: avoid early skirmishes, dominate mid/late game')
+    else wcs.push('Mixed: multiple win conditions — adapt to the game state')
+  }
+  return wcs
+}
+
+function getDraftVerdict() {
+  const bPicks = DS.blue.picks.filter(Boolean).map(id => CHAMPS[id]).filter(Boolean)
+  const rPicks = DS.red.picks.filter(Boolean).map(id => CHAMPS[id]).filter(Boolean)
+  if (bPicks.length < 5 || rPicks.length < 5) return null
+
+  const bTags = bPicks.flatMap(c => c.tags)
+  const rTags = rPicks.flatMap(c => c.tags)
+  let bScore = 0, rScore = 0
+  const reasons = []
+
+  // Meta tier advantage
+  const bTier = bPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.tier||3), 0) / bPicks.length
+  const rTier = rPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.tier||3), 0) / rPicks.length
+  if (bTier < rTier - 0.3) { bScore += 2; reasons.push('Blue drafted higher meta-priority champions') }
+  else if (rTier < bTier - 0.3) { rScore += 2; reasons.push('Red drafted higher meta-priority champions') }
+
+  // Counter advantage — how well each team's champs beat the other's tags
+  const bCounterR = bPicks.reduce((s,c) => s + counterScore(c, rPicks.map(r=>r.id)), 0)
+  const rCounterB = rPicks.reduce((s,c) => s + counterScore(c, bPicks.map(b=>b.id)), 0)
+  if (bCounterR > rCounterB + 0.8) { bScore += 2; reasons.push('Blue has counter pick advantage') }
+  else if (rCounterB > bCounterR + 0.8) { rScore += 2; reasons.push('Red has counter pick advantage') }
+
+  // Comp cohesion — a clear archetype scores better than "mixed"
+  const bArch = domArch(bTags.reduce((o,t)=>{o[t]=(o[t]||0)+1;return o},{}))
+  const rArch = domArch(rTags.reduce((o,t)=>{o[t]=(o[t]||0)+1;return o},{}))
+  if (bArch !== 'mixed' && rArch === 'mixed') { bScore++; reasons.push('Blue has a clearer win condition') }
+  else if (rArch !== 'mixed' && bArch === 'mixed') { rScore++; reasons.push('Red has a clearer win condition') }
+
+  // Comp gaps — missing key roles
+  if (!bTags.includes('Tank')) { rScore++; reasons.push('Blue has no tank — vulnerable to dive') }
+  if (!rTags.includes('Tank')) { bScore++; reasons.push('Red has no tank — vulnerable to engage') }
+  if (!bTags.includes('Marksman') && !bTags.includes('Mage')) { rScore++; reasons.push('Blue lacks sustained damage') }
+  if (!rTags.includes('Marksman') && !rTags.includes('Mage')) { bScore++; reasons.push('Red lacks sustained damage') }
+
+  // Pro presence
+  const bPro = bPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.pro||0), 0)
+  const rPro = rPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.pro||0), 0)
+  if (bPro > rPro + 3) { bScore++; reasons.push('Blue drafted more pro-validated picks') }
+  else if (rPro > bPro + 3) { rScore++; reasons.push('Red drafted more pro-validated picks') }
+
+  const diff = bScore - rScore
+  const side = diff > 0 ? 'Blue' : diff < 0 ? 'Red' : null
+  const sideColor = side === 'Blue' ? 'var(--blue)' : 'var(--red)'
+  const abs = Math.abs(diff)
+  const strength = abs >= 4 ? 'dominant' : abs >= 2 ? 'clear' : abs === 1 ? 'slight' : ''
+
+  let verdict = '', verdictColor = 'var(--gold)'
+  if (!side) {
+    verdict = 'Even draft — execution will decide the game.'
+    verdictColor = 'var(--gold)'
+  } else {
+    verdict = `${side} has the ${strength} draft advantage.`
+    verdictColor = sideColor
+  }
+  const topReasons = reasons.filter(r => {
+    if (side === 'Blue') return r.toLowerCase().includes('blue')
+    if (side === 'Red') return r.toLowerCase().includes('red')
+    return true
+  }).slice(0, 2)
+  const extra = topReasons.length ? ' ' + topReasons.join('. ') + '.' : ''
+
+  return { verdict: verdict + extra, verdictColor }
+}
+
+// ── Live team-comp planner (Ranked 5's / Flex team draft) ───────────────────
+const WINCON = {
+  'Poke/Siege':    'Poke them below 50% then siege objectives — avoid even 5v5s.',
+  'Dive':          'Set waves, flank, and commit together onto their backline.',
+  'Pick':          'Sweep before objectives, catch someone in the fog, convert instantly.',
+  'Front-to-back': 'Peel for your carry and win the long teamfight front-to-back.',
+  'Engage':        'Land your engage and win the 5v5 at an objective.',
+  'Flexible':      'Flexible so far — lock a clear win condition with your next picks.',
+}
+function teamProfile(side) {
+  const ids = DS[side].picks.filter(Boolean)
+  const champs = ids.map(id => CHAMPS[id]).filter(Boolean)
+  const tags = champs.flatMap(c => c.tags)
+  const dmgs = champs.map(c => dmgType(c))
+  const adCount = dmgs.filter(d => d === 'AD').length
+  const apCount = dmgs.filter(d => d === 'AP').length
+  const mixedCount = dmgs.filter(d => d === 'mixed').length
+  // Damage weight: mixed counts half to each side. Used for the AD/AP split bar.
+  const adW = adCount + mixedCount * 0.5
+  const apW = apCount + mixedCount * 0.5
+  const dmgTot = adW + apW
+  return {
+    n: champs.length, champs,
+    hasTank: tags.includes('Tank'),
+    hasMarks: tags.includes('Marksman'),
+    hasAD: dmgs.some(d => d === 'AD' || d === 'mixed'),
+    hasAP: dmgs.some(d => d === 'AP' || d === 'mixed'),
+    adCount, apCount, mixedCount,
+    adPct: dmgTot ? Math.round(adW / dmgTot * 100) : 50,
+    apPct: dmgTot ? Math.round(apW / dmgTot * 100) : 50,
+    engage: ids.filter(id => ENGAGE.has(id)).length,
+    peel: ids.filter(id => PEEL.has(id)).length,
+    poke: ids.filter(id => POKE.has(id)).length,
+    cc: ids.filter(id => CC.has(id)).length,
+    scaling: ids.filter(id => SCALING.has(id)).length,
+    tanks: tags.filter(t => t === 'Tank').length,
+    assassins: tags.filter(t => t === 'Assassin').length,
+    hyper: champs.some(c => SCALING.has(c.id) && c.tags.includes('Marksman')),
+  }
+}
+// Rate a 0..n count into Low / Med / High with a color, for the comp stat grid.
+function rateLevel(v, hi, mid) {
+  if (v >= hi) return { t: 'High', c: 'var(--green)' }
+  if (v >= mid) return { t: 'Med',  c: 'var(--yellow)' }
+  return { t: v ? 'Low' : 'None', c: v ? 'var(--gray-l)' : '#E87A65' }
+}
+function compArchetype(p) {
+  if (!p.n) return 'Flexible'
+  if (p.poke >= 2 && p.engage === 0) return 'Poke/Siege'
+  if (p.engage >= 2 && (p.assassins >= 1 || p.engage >= 3)) return 'Dive'
+  if (p.hasTank && p.peel >= 1 && (p.hyper || p.scaling >= 1)) return 'Front-to-back'
+  if (p.cc >= 2 && p.engage < 2 && (p.assassins >= 1 || p.poke >= 1)) return 'Pick'
+  if (p.engage >= 1 && p.hasTank) return 'Engage'
+  return 'Flexible'
+}
+function compNeeds(p) {
+  const need = []
+  if (!p.hasTank) need.push('frontline')
+  if (!p.hasMarks && p.scaling === 0) need.push('a primary carry')
+  if (p.hasAD && !p.hasAP) need.push('AP damage')
+  if (p.hasAP && !p.hasAD) need.push('AD damage')
+  if (p.engage === 0 && p.cc < 2) need.push('engage / CC')
+  if (p.hyper && p.peel === 0) need.push('peel for your carry')
+  return need
+}
+
+function renderComp() {
+  document.getElementById('comp-blue').innerHTML = compBlock('blue')
+  document.getElementById('comp-red').innerHTML  = compBlock('red')
+
+  const order = getActiveDraftOrder()
+  const done = DS.step >= order.length
+    && DS.blue.picks.filter(Boolean).length === 5
+    && DS.red.picks.filter(Boolean).length === 5
+
+  if (done) {
+    // Show win cons + draft verdict
+    const bWcs = getWinCons('blue')
+    const rWcs = getWinCons('red')
+    const verdict = getDraftVerdict()
+    let html = ''
+    if (verdict) html += `<div class="draft-verdict" style="border-color:${verdict.verdictColor}22;color:${verdict.verdictColor}">${verdict.verdict}</div>`
+    if (bWcs.length) html += `<div class="wc-block b"><div class="wc-lbl">Blue Win Cons</div>${bWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
+    if (rWcs.length) html += `<div class="wc-block r"><div class="wc-lbl">Red Win Cons</div>${rWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
+    document.getElementById('comp-warnings').innerHTML = html
+  } else if (mainTab !== 'solo') {
+    // Live comp plan — what you're building, your win condition, what's missing.
+    // Recomputed every pick & ban for both teams. Follows OUR side.
+    const p = teamProfile(mySide), e = teamProfile(otherSide())
+    const usCls = mySide === 'blue' ? 'b' : 'r'
+    const themCls = mySide === 'blue' ? 'r' : 'b'
+    let html = ''
+    if (p.n) {
+      const arch = compArchetype(p), needs = compNeeds(p)
+      html += `<div class="wc-block ${usCls}">
+        <div class="wc-lbl">Your comp plan</div>
+        <div class="wc-item">Building: <b>${arch}</b></div>
+        <div class="wc-item" style="color:var(--gray-l)">${WINCON[arch]||''}</div>
+        <div class="wc-item">${needs.length ? 'Still need: <b>'+needs.join(', ')+'</b>' : 'Core boxes covered ✓ — now pick for power & matchups'}</div>
+      </div>`
+    }
+    if (e.n) {
+      const earch = compArchetype(e)
+      html += `<div class="wc-block ${themCls}"><div class="wc-lbl">Enemy shaping up as</div><div class="wc-item">${earch}${e.n<5?' (so far)':''}</div></div>`
+    }
+    document.getElementById('comp-warnings').innerHTML = html ||
+      '<div class="empty-msg">Pick champions to see your comp plan build live.</div>'
+  } else {
+    // Solo: just flag the enemy comp identity to inform your pick
+    const e = teamProfile('red')
+    document.getElementById('comp-warnings').innerHTML = e.n
+      ? `<div class="wc-block r"><div class="wc-lbl">Enemy comp</div><div class="wc-item">${compArchetype(e)}</div></div>` : ''
+  }
+}
+
+function compBlock(side) {
+  const p = teamProfile(side)
+  const lc = side === 'blue' ? 'b' : 'r'
+  const label = side === 'blue' ? 'BLUE TEAM' : 'RED TEAM'
+  const isUs = mainTab !== 'solo' && side === mySide
+  const arch = domArch((() => { const tc={}; for(const c of p.champs) for(const t of c.tags) tc[t]=(tc[t]||0)+1; return tc })())
+
+  if (!p.n) {
+    return `<div class="comp-block ${lc}">
+      <div class="comp-lbl ${lc}">${label}${isUs ? ' · YOU' : ''}</div>
+      <div style="color:var(--gray);font-size:10px;padding:4px 0">No picks yet</div>
+    </div>`
+  }
+
+  // Damage split bar — tells you what resist the enemy must itemize against.
+  const dmgBar = `<div class="dmg-bar" title="Physical ${p.adPct}% / Magic ${p.apPct}%">
+      <div class="dmg-ad" style="width:${p.adPct}%">${p.adPct >= 18 ? p.adPct + '% AD' : ''}</div>
+      <div class="dmg-ap" style="width:${p.apPct}%">${p.apPct >= 18 ? p.apPct + '% AP' : ''}</div>
+    </div>`
+  // Skew warning: lopsided damage is itemizable against (stack armor or MR).
+  let dmgNote = ''
+  if (p.n >= 3 && p.adPct >= 80) dmgNote = `<div class="comp-warn">Damage all physical — enemy can stack armor</div>`
+  else if (p.n >= 3 && p.apPct >= 80) dmgNote = `<div class="comp-warn">Damage all magic — enemy can stack MR</div>`
+
+  // Stat grid — the things that decide teamfights.
+  const stats = [
+    ['Frontline', rateLevel(p.tanks, 2, 1)],
+    ['CC',        rateLevel(p.cc, 3, 2)],
+    ['Engage',    rateLevel(p.engage, 2, 1)],
+    ['Peel',      rateLevel(p.peel, 2, 1)],
+    ['Poke',      rateLevel(p.poke, 2, 1)],
+    ['Scaling',   rateLevel(p.scaling, 2, 1)],
+  ]
+  const grid = stats.map(([k, r]) =>
+    `<div class="stat-cell"><span class="stat-k">${k}</span><span class="stat-v" style="color:${r.c}">${r.t}</span></div>`
+  ).join('')
+
+  return `<div class="comp-block ${lc}">
+    <div class="comp-lbl ${lc}">${label}${isUs ? ' · YOU' : ''}
+      <span class="arch-badge" style="background:${ARCH_COLORS[arch]}">${arch[0].toUpperCase()+arch.slice(1)}</span>
+    </div>
+    <div class="dmg-row"><span class="dmg-lbl">Damage</span>${dmgBar}</div>
+    ${dmgNote}
+    <div class="stat-grid">${grid}</div>
+  </div>`
+}
+
+function domArch(tc){
+  const s={engage:(tc.Tank||0)*2+(tc.Fighter||0),poke:(tc.Mage||0)+(tc.Marksman||0),assassin:(tc.Assassin||0)*2,peel:(tc.Support||0)*2}
+  const top=Object.entries(s).sort((a,b)=>b[1]-a[1])[0]
+  return top&&top[1]>0?top[0]:'mixed'
+}
+
+// ── Grid ──────────────────────────────────────────────────────────────────
+function filterGrid() {
+  const q = document.getElementById('champ-search').value.toLowerCase()
+  const used = new Set(getUsedIds())
+  const sug = getSuggestions()
+  const sugPicks = new Set(sug.picks.map(s=>s.id))
+  const sugBans  = new Set(sug.bans.map(s=>s.id))
+  // Role filter buttons map to actual game roles (accurate, not tag-guessed)
+  const roleMap = {Fighter:'top',Jungle:'jungle',Mage:'mid',Marksman:'adc',Support:'support'}
+
+  const visible = CHAMP_LIST.filter(c=>{
+    if (q && !c.name.toLowerCase().includes(q)) return false
+    if (roleFilter) {
+      const r = roleMap[roleFilter]
+      if (r && !champRoles(c.id).has(r)) return false
+    }
+    return true
+  })
+
+  document.getElementById('champ-grid').innerHTML = visible.map(c=>{
+    const isUsed = used.has(c.id)
+    let cls = 'champ-tile'+(isUsed?' used':'')
+    if (!isUsed && sugPicks.has(c.id) && sugTab==='picks'){
+      const t=TIER_DATA[c.id]?.tier; if(t===1) cls+=' suggest-s'; else if(t===2) cls+=' suggest-a'
+    }
+    if (!isUsed && sugBans.has(c.id) && sugTab==='bans') cls+=' suggest-ban'
+    return `<div class="${cls}" onclick="selectChamp(${c.id},event)" title="${c.name}">
+      <img src="${c.img}" alt="${c.name}" loading="lazy" onerror="this.style.display='none'"/>
+      <div class="champ-tile-name">${c.name}</div>
+    </div>`
+  }).join('')
+}
+
+function setRole(r){
+  roleFilter=r
+  document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('active'))
+  document.getElementById(`rf-${r||'all'}`)?.classList.add('active')
+  filterGrid()
+}
+window.setRole=setRole
+
+function setSugTab(t){
+  sugTab=t
+  document.getElementById('tab-picks').classList.toggle('on',t==='picks')
+  document.getElementById('tab-bans').classList.toggle('on',t==='bans')
+  renderSuggestions()
+}
+window.setSugTab=setSugTab
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+init()
+</script>
+
+<!-- SLOT PICKER (assign champion to any pick post-draft) -->
+<div id="slot-picker" class="hidden"></div>
+
+<!-- HISTORY MODAL -->
+<div id="history-modal" class="hidden">
+  <div class="hist-box">
+    <div class="hist-box-hdr">
+      <h3 id="hist-modal-title">SAVE DRAFT</h3>
+      <button class="btn" style="font-size:10px;padding:3px 10px" onclick="closeSaveModal()">✕ Close</button>
+    </div>
+
+    <!-- Save panel -->
+    <div id="history-save-panel" class="hist-content">
+      <div style="color:var(--gold-l);font-size:12px">How did the game go?</div>
+      <textarea id="draft-notes-input" class="hist-notes-in" placeholder="Optional notes (e.g. 'went even in lane, teamfight comp worked well')"></textarea>
+      <div class="hist-save-btns">
+        <button class="hist-win-btn" onclick="confirmSaveDraft('win')">WIN</button>
+        <button class="hist-loss-btn" onclick="confirmSaveDraft('loss')">LOSS</button>
+        <button class="hist-skip-btn" onclick="confirmSaveDraft(null)">Save without result</button>
+      </div>
+      <div style="margin-top:4px;text-align:center">
+        <button class="btn" style="font-size:10px" onclick="openHistory()">View Past Drafts →</button>
+      </div>
+    </div>
+
+    <!-- History view panel -->
+    <div id="history-view-panel" class="hist-content hidden">
+      <div id="history-list"></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

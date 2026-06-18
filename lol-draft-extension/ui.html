@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LoL Draft Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <span class="header-title">Draft Assist &nbsp;<span style="color:var(--gold-dim);font-size:12px;font-weight:400;letter-spacing:1px">KQF</span></span>
+  <div id="status-area" style="display:flex;align-items:center;gap:6px;font-size:12px">
+    <span class="status-dot gray" id="status-dot"></span>
+    <span id="status-text">Loading...</span>
+    <button class="btn" id="reset-btn" style="margin-left:12px;font-size:10px;padding:4px 10px" title="Reset setup">Reset</button>
+  </div>
+</div>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen" class="hidden">
+  <h2>FIRST-TIME SETUP</h2>
+
+  <div class="setup-step" id="step1">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <div class="step-label">Open League of Legends</div>
+      <div class="step-desc">Make sure the League client is running and you're logged in. The lockfile only exists while the client is open.</div>
+    </div>
+  </div>
+
+  <div class="setup-step" id="step2">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <div class="step-label">Paste your lockfile contents</div>
+      <div class="step-desc">
+        Open Notepad, then drag the lockfile into it from:<br>
+        <code style="color:var(--blue);font-size:11px">C:\Riot Games\League of Legends\lockfile</code><br><br>
+        You'll see one line like <code style="color:var(--gold);font-size:11px">LeagueClient:1234:56789:abc123:https</code><br>
+        Copy that whole line and paste it below.
+      </div>
+      <textarea id="lockfile-paste"
+        placeholder="Paste lockfile contents here..."
+        style="width:100%;height:52px;background:var(--dark);border:1px solid var(--gold-dim);color:var(--gold-light);border-radius:4px;padding:6px 8px;font-size:11px;font-family:monospace;resize:none;outline:none;margin-bottom:6px"
+        oninput="onLockfilePaste(this.value)"></textarea>
+      <span id="lockfile-status" style="color:var(--gray);font-size:11px"></span>
+    </div>
+  </div>
+
+  <div class="setup-step" id="step3">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <div class="step-label">Accept the League certificate</div>
+      <div class="step-desc">
+        League uses a local HTTPS connection. You need to accept its self-signed certificate once.<br><br>
+        Click the button below — a new tab will open. Click <strong>Advanced → Proceed</strong>, then come back here.
+      </div>
+      <button class="btn primary" id="accept-cert-btn" disabled>Accept League Certificate</button>
+      <span id="cert-status" style="color:var(--gray);font-size:11px;margin-left:10px"></span>
+    </div>
+  </div>
+
+  <div class="setup-step" id="step4">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <div class="step-label">Done — start drafting</div>
+      <div class="step-desc">Queue up for a ranked game. The draft board appears automatically when you enter champion select.</div>
+      <button class="btn primary" id="finish-btn" disabled>Launch Draft Board</button>
+    </div>
+  </div>
+</div>
+
+<!-- IDLE SCREEN -->
+<div id="idle-screen" class="hidden">
+  <div class="idle-icon">⚔️</div>
+  <div class="idle-title">WAITING FOR CHAMPION SELECT</div>
+  <div class="idle-sub">Queue up for a ranked game. The board will appear automatically.</div>
+</div>
+
+<!-- DRAFT SCREEN -->
+<div id="draft-screen" class="hidden">
+  <!-- Left: Suggestions -->
+  <div class="panel">
+    <div class="panel-title">Suggestions</div>
+    <div class="tab-row">
+      <div class="tab picks-tab active" id="tab-picks" onclick="switchTab('picks')">Picks</div>
+      <div class="tab bans-tab" id="tab-bans" onclick="switchTab('bans')">Bans</div>
+      <span class="ban-phase-indicator hidden" id="ban-phase-indicator">● Ban Phase</span>
+    </div>
+    <div id="suggestions-list"></div>
+  </div>
+
+  <!-- Center: Draft board -->
+  <div class="draft-board">
+    <div class="phase-banner">
+      <span class="phase-label" id="phase-label">PICK PHASE</span>
+      <span class="timer" id="phase-timer">--</span>
+    </div>
+    <div class="teams-grid">
+      <div id="blue-team"></div>
+      <div class="vs-divider">
+        <div class="vs-line"></div>
+        <span class="vs-text">VS</span>
+        <div class="vs-line"></div>
+      </div>
+      <div id="red-team"></div>
+    </div>
+  </div>
+
+  <!-- Right: Comp analyzer -->
+  <div class="panel">
+    <div class="panel-title">Comp Analysis</div>
+    <div id="comp-my-team"></div>
+    <div id="comp-enemy-team" style="margin-top:4px"></div>
+    <div id="comp-warnings" style="margin-top:4px;display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+</div>
+
+<script src="ui.js"></script>
+</body>
+</html>

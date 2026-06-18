@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "LoL Draft Assistant - KQF",
+  "version": "1.0.0",
+  "description": "Live draft assistant — reads your League client and gives pick/ban suggestions in real time.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://127.0.0.1:*/*",
+    "https://ddragon.leagueoflegends.com/*",
+    "https://raw.communitydragon.org/*",
+    "https://stats2.u.gg/*",
+    "https://app.mobalytics.gg/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "LoL Draft Assistant",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "128": "icon.png"
+  }
+}

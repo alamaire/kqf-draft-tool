@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #010A13;
+  color: #F0E6D3;
+  font-family: 'Beaufort for LOL', Georgia, serif;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0A1428;
+}
+::-webkit-scrollbar-thumb {
+  background: #C89B3C44;
+  border-radius: 2px;
+}
