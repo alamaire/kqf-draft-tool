@@ -1,0 +1,33 @@
+name: Refresh op.gg data
+
+# Keeps champ-data.js current by re-pulling every champion's counters + synergies
+# from op.gg once a day (and on demand). Runs entirely on GitHub — no manual step.
+on:
+  schedule:
+    - cron: '0 11 * * *'   # ~daily, 11:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Pull latest op.gg data
+        run: node scripts/refresh-opgg.js
+      - name: Commit if changed
+        run: |
+          if ! git diff --quiet -- champ-data.js; then
+            git config user.name "kqf-data-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add champ-data.js
+            git commit -m "Daily op.gg data refresh"
+            git push
+          else
+            echo "No data changes."
+          fi
