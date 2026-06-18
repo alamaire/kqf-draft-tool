@@ -557,6 +557,39 @@ function synergyNames(champId, allyPicks) {
   const list = SYN[champId] || []
   return [...new Set(allyPicks.filter(id => list.includes(id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
 }
+
+// Real duo/synergy data from op.gg champion synergy pages (pulled 2026-06-18) —
+// champName -> { partnerName: winRate }. Drives bot-lane (ADC↔support), jungle↔
+// support and jungle↔mid synergy in the draft. Expanded daily by the refresh
+// routine. Authoritative; curated SYN is only a fallback.
+const OPGG_SYNERGY = {
+  'Miss Fortune': { Leona:53.17, Thresh:52.43, Nautilus:50.9, Seraphine:50.75, Nami:47.72, Lux:47.97 },
+  Jinx:  { Braum:54.55, Thresh:54.5, Seraphine:52.76, Nami:50.18, Lulu:51.03, Milio:51.51 },
+  Elise: { Zed:50.42, Yone:46.86, Yasuo:50.23, Thresh:48.88, Nautilus:47.69, Seraphine:50.4 },
+  Thresh:{ Senna:56.41, Jinx:54.09, Caitlyn:50.82, Ezreal:47.63, Jhin:49.18, "Kai'Sa":49.98 },
+  'Lee Sin': { Viktor:49.59, Sylas:49.09, Katarina:51.46, Thresh:49.89, Seraphine:50.73, Leona:50.01, Senna:53.81, Ezreal:46.46, Jhin:47.95, Aatrox:48.34, Jayce:48.75, Garen:49.85 },
+}
+// Synergy quality 0..1 between two champs — op.gg win rate first, else curated SYN.
+function synergyQuality(aId, bId) {
+  const aN = CHAMPS[aId]?.name, bN = CHAMPS[bId]?.name
+  const wr = OPGG_SYNERGY[aN]?.[bN] ?? OPGG_SYNERGY[bN]?.[aN]
+  if (wr != null) return Math.max(0, Math.min(1, (wr - 48) / 6))  // 48%→0, 54%→1
+  if ((SYN[aId] || []).includes(bId) || (SYN[bId] || []).includes(aId)) return 0.5
+  return 0
+}
+// Which partner roles matter for each role (the pairings the user flagged):
+// bot duo (ADC↔support), jungle↔support, jungle↔mid.
+const SYNERGY_PARTNER_ROLES = { adc:['support'], support:['adc','jungle'], jungle:['support','mid'], mid:['jungle'], top:[] }
+// Best role-pair synergy for a champ in `role` given the picking side's slots.
+function rolePairSynergy(champId, role, allyByRole) {
+  let best = { score: 0, partnerId: null, partnerRole: null }
+  for (const pr of (SYNERGY_PARTNER_ROLES[role] || [])) {
+    const pid = allyByRole[pr]; if (!pid) continue
+    const q = synergyQuality(champId, pid)
+    if (q > best.score) best = { score: q, partnerId: pid, partnerRole: pr }
+  }
+  return best
+}
 function counteredByNames(champId, enemyPicks) {
   return [...new Set(enemyPicks.filter(e => beatsInLane(e, champId)).map(e => CHAMPS[e]?.name).filter(Boolean))]
 }
@@ -1634,7 +1667,7 @@ function pickChips(champ, player, entry, allyPicks, enemyPicks, role) {
 // Situational reasoning — WHY this pick is good right now, given the picks on
 // the board. No tier/meta/pro talk; everything references the live draft state.
 // histOk: include our learned match-history note (only for OUR own picks).
-function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk, laneOppId, laneRole) {
+function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk, laneOppId, laneRole, allyByRole) {
   const solo = mainTab === 'solo'
   const allyTags = allyPicks.flatMap(id => CHAMPS[id]?.tags || [])
   const eTags = enemyPicks.flatMap(id => CHAMPS[id]?.tags || [])
@@ -1675,15 +1708,13 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
   let ctx = ''
   const laneOppName = laneOppId ? CHAMPS[laneOppId]?.name : null
   const laneTag = (laneRole || '').toUpperCase()
-  // LANE OPPONENT matchup is the headline when it's revealed (top priority).
-  if (laneOppId && (COUNTERS[champ.id] || []).includes(laneOppId))
-    ctx = `Hard-counters ${laneOppName} in the ${laneTag} matchup — heavily in your favor.`
-  else if (laneOppId && (COUNTERS[laneOppId] || []).includes(champ.id))
-    ctx = `Loses the ${laneTag} lane to ${laneOppName} — only take it with jungle help or a role swap.`
-  // Specific, kit-driven counters elsewhere on the board
-  else if (hardCounters.length)
-    ctx = `Hard counters ${joinNames(hardCounters.slice(0, 2))} — a matchup that's heavily in your favor.`
-  // Counter-focused (most specific first)
+  // LANE OPPONENT matchup is the ONLY 1v1 matchup we talk about — cross-lane
+  // "favorable into X" noise is intentionally dropped (only lane + team-comp).
+  if (laneOppId && beatsInLane(champ.id, laneOppId))
+    ctx = `Beats ${laneOppName} in the ${laneTag} matchup — a favorable lane.`
+  else if (laneOppId && beatsInLane(laneOppId, champ.id))
+    ctx = `Loses the ${laneTag} matchup to ${laneOppName} — needs jungle help or a swap.`
+  // Team-comp-framed reads (these the user does care about)
   else if ((champ.tags.includes('Marksman') || champ.tags.includes('Mage')) && eTanks >= 2)
     ctx = `Enemy is stacking ${eTanks} tanks — your damage is what shreds that frontline in extended fights.`
   else if (champ.tags.includes('Tank') && eAssassins.length)
@@ -1692,8 +1723,6 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
     ctx = `Gives you a frontline to absorb ${joinNames(eDivers)} instead of letting them reach your backline.`
   else if (champ.tags.includes('Assassin') && eTags.includes('Marksman') && eTanks === 0)
     ctx = `Their backline has no tank in front of it — you can dive ${joinNames(namesWithTag(enemyPicks, 'Marksman'))} directly.`
-  else if (countered.length)
-    ctx = `Favorable matchup into ${joinNames(countered.slice(0, 2))} on their side.`
   // Comp-gap-focused
   else if (allyPicks.length >= 2 && !allyTags.includes('Tank') && champ.tags.includes('Tank'))
     ctx = `Your team has no frontline yet — this is the engage and peel you're missing.`
@@ -1720,11 +1749,16 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
 
   if (ctx) lines.push(ctx)
 
-  // Synergy with an ally already locked, and caution if a locked enemy counters it
-  const synAllies = synergyNames(champ.id, allyPicks)
-  if (synAllies.length) lines.push(`Strong synergy with your ${joinNames(synAllies.slice(0, 2))}.`)
-  const cBy = counteredByNames(champ.id, enemyPicks).filter(n => n !== laneOppName)
-  if (cBy.length) lines.push(`Watch out — ${joinNames(cBy.slice(0, 2))} counters it in lane.`)
+  // Role-pair synergy (bot duo / jungle-support / jungle-mid) with a locked ally.
+  if (allyByRole) {
+    const sp = rolePairSynergy(champ.id, laneRole, allyByRole)
+    if (sp.score >= 0.35 && sp.partnerId) {
+      const pn = CHAMPS[sp.partnerId]?.name
+      const isBot = (laneRole === 'adc' || laneRole === 'support') && (sp.partnerRole === 'adc' || sp.partnerRole === 'support')
+      const kind = isBot ? 'bot-lane duo' : sp.partnerRole === 'jungle' || laneRole === 'jungle' ? 'jungle' : ''
+      lines.push(`Strong ${kind ? kind + ' ' : ''}synergy with ${pn}.`)
+    }
+  }
 
   // Learned from our own saved drafts (grows as match history is built)
   if (histOk) {
@@ -2018,6 +2052,10 @@ function getSuggestions() {
   const roles  = openRolesFor(forSide)
   const useRoles = roles.length ? roles : ALL_ROLES
   const picks = [], bans = []
+  // The picking side's locked picks by role — drives role-pair synergy (bot duo,
+  // jungle↔support, jungle↔mid).
+  const allyByRole = {}
+  DS[forSide].roles.forEach((r, i) => { if (DS[forSide].picks[i]) allyByRole[r] = DS[forSide].picks[i] })
 
   // Equal-weight core signals, but let the SPECIFIC draft decide emphasis:
   //   • mastery / solo-queue WR / pro presence are flat baseline strength
@@ -2066,7 +2104,8 @@ function getSuggestions() {
       // a support's pool can't recommend a champ for mid. Dropped for enemy preds.
       const fam = isOurs ? bestFamiliarity(c.id, role) : { score: 0, player: null, entry: null }
       const famScore = fam.score, player = fam.player, entry = fam.entry
-      const syn = synergyScore(c.id, pAlly)
+      // Role-pair synergy (bot duo / jungle-support / jungle-mid) with our locked picks.
+      const syn = rolePairSynergy(c.id, role, allyByRole).score
       const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy).length * 0.08)
 
       // #1 LANE MATCHUP — the single biggest factor once the lane opponent is known.
@@ -2098,13 +2137,13 @@ function getSuggestions() {
       const wLane   = laneOpp ? 0.30 : 0
       const wComp   = (laneOpp ? 0.16 : 0.22) + 0.06 * (aC / 5)
       const wOthers = 0.12 * (otherEnemies.length / 4)
-      const wSyn    = W.synBase + 0.04 * (aC / 5)
+      const wSyn    = 0.10 + 0.06 * (aC / 5)   // duos matter — weighted meaningfully
       const proPk = proPickScore(c.id)
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
                   + timing + histBonus - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
-      const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role)
+      const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
       const sub = (m.wr !== null ? `${role.toUpperCase()} ${m.wr}% WR · ${PATCH}` : role.toUpperCase()) + offTag
       picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
