@@ -75,21 +75,21 @@ async function main() {
     if (!hc && !hs) fail.push(c.slug);
   });
 
-  // Per-role stats (WR + pick rate) from the tier pages.
+  // Per-role stats from the tier pages. Each main record carries the champ's real
+  // win rate, pick rate, ROLE rate (share of its games in that role → tells us its
+  // true roles), tier and RANK in the role. stats[name][role] = {wr,pr,roleRate,tier,rank}.
   const stats = {};
   const ROLES = ['top', 'jungle', 'mid', 'adc', 'support'];
-  const STAT_RE = /"champion_id":(\d+),"win_rate":([\d.]+),"pick_rate":([\d.]+)/g;
+  const STAT_RE = /"name":"([^"]+)","image_url":"[^"]*","positionName":"[^"]+","positionWinRate":([\d.]+),"positionPickRate":([\d.]+),"positionBanRate":[\d.]+,"positionRoleRate":([\d.]+),"positionTierData":\{[^}]*\},"positionTier":(\d+),"positionRank":(\d+)/g;
   for (const role of ROLES) {
     const h = await getText(`https://op.gg/lol/champions?position=${role}`);
-    // tier pages key by champion_id; map id->name via champRaw
-    const idToName = {}; for (const c of Object.values(champRaw)) idToName[+c.key] = c.name;
-    if (h) {
-      const u = h.replace(/\\"/g, '"'); let m; STAT_RE.lastIndex = 0;
-      while ((m = STAT_RE.exec(u))) {
-        const nm = idToName[+m[1]]; if (!nm) continue;
-        let wr = +m[2], pr = +m[3]; if (wr <= 1) wr = +(wr * 100).toFixed(2); if (pr <= 1) pr = +(pr * 100).toFixed(2);
-        (stats[nm] = stats[nm] || { roles: {} }).roles[role] = [wr, pr];
-      }
+    if (!h) continue;
+    const u = h.replace(/\\"/g, '"'); let m; STAT_RE.lastIndex = 0;
+    while ((m = STAT_RE.exec(u))) {
+      const name = m[1];
+      (stats[name] = stats[name] || {})[role] = {
+        wr: +m[2], pr: +m[3], roleRate: +(+m[4]).toFixed(3), tier: +m[5], rank: +m[6],
+      };
     }
   }
 

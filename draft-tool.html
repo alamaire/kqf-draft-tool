@@ -744,37 +744,58 @@ const CHAMPION_ROLES = {
   Zoe:['mid'], Zyra:['support','jungle'],
 }
 
-// Roles a champion is currently viable in (patch data → META roles → tags)
-function champRoles(champId) {
-  const td = TIER_DATA[champId] || {}
-  const set = new Set()
-  if (td.patch) for (const r in td.patch) set.add(r)
-  for (const r of (td.roles || [])) set.add(r)
-  if (!set.size) for (const t of (CHAMPS[champId]?.tags || [])) { const r = TAG_TO_ROLE[t]; if (r) set.add(r) }
-  return set
+// Live op.gg per-role stats for a champion: { role: {wr, pr, roleRate, tier, rank} }.
+function champStats(champId) {
+  return (window.OPGG_DATA && window.OPGG_DATA.stats && window.OPGG_DATA.stats[CHAMPS[champId]?.name]) || null
 }
-// Patch-meta strength for a role: {wr, pr, score 0-1}. Falls back to curated tier.
-function metaForRole(champId, role) {
+const ROLE_RATE_MIN = 0.15   // a champ "plays" a role if ≥15% of its games are there
+
+// Roles a champion actually plays — from op.gg role-rate (share of its games per
+// role). Falls back to curated roles/tags only when we have no live data.
+function champRoles(champId) {
+  const st = champStats(champId)
+  if (st) {
+    const set = new Set()
+    for (const r in st) if (st[r].roleRate >= ROLE_RATE_MIN) set.add(r)
+    if (set.size) return set
+    // nothing above threshold → its single most-played role
+    let best = null, br = -1
+    for (const r in st) if (st[r].roleRate > br) { br = st[r].roleRate; best = r }
+    if (best) return new Set([best])
+  }
   const td = TIER_DATA[champId] || {}
-  let wr = null, pr = null
-  if (td.patch) {
-    if (role && td.patch[role]) { [wr, pr] = td.patch[role] }
-    else for (const r in td.patch) { if (wr === null || td.patch[r][0] > wr) [wr, pr] = td.patch[r] }
+  const s2 = new Set()
+  if (td.patch) for (const r in td.patch) s2.add(r)
+  for (const r of (td.roles || [])) s2.add(r)
+  if (!s2.size) for (const t of (CHAMPS[champId]?.tags || [])) { const r = TAG_TO_ROLE[t]; if (r) s2.add(r) }
+  return s2
+}
+// Per-role strength {wr, pr, score 0-1, rank}. Grounded in REAL op.gg data:
+// win rate weighted by matches played (pick rate = confidence), blended with the
+// champ's RANK in that role — so a rank-44, low-play pick scores low even if its
+// raw WR looks ~50%. No more fake tier-fallback scores.
+function metaForRole(champId, role) {
+  const st = champStats(champId)
+  if (st) {
+    let d = role && st[role] ? st[role] : null
+    if (!d) { let br = -1; for (const r in st) if (st[r].roleRate > br) { br = st[r].roleRate; d = st[r] } }
+    if (d) {
+      const wrScore = Math.max(0, Math.min(1, (d.wr - 47) / 7))
+      const conf = Math.min(1, d.pr / 3)                       // ~3%+ pick rate = full trust
+      let s = wrScore * conf + 0.5 * (1 - conf)                // low sample → toward neutral
+      const rankScore = Math.max(0, Math.min(1, 1 - (d.rank - 1) / 35))  // rank 1→1, 36+→0
+      s = s * 0.55 + rankScore * 0.45
+      return { wr: d.wr, pr: d.pr, score: s, rank: d.rank, tier: d.tier }
+    }
   }
-  if (wr !== null) {
-    let s = Math.max(0, Math.min(1, (wr - 47) / 7))
-    // Win rate weighted by MATCHES PLAYED: a strong WR on a tiny sample (rarely
-    // played in the role) is trusted less and pulled toward neutral.
-    const conf = pr != null ? Math.min(1, pr / 4) : 0.7   // ~4%+ pick rate = full trust
-    s = s * conf + 0.5 * (1 - conf)
-    return { wr, pr, score: s }
-  }
+  const td = TIER_DATA[champId] || {}
   const tier = td.tier || 3
   return { wr: null, pr: null, score: TIER_SCORES[tier - 1] ?? 0.4 }
 }
-// Ordered role list (PRIMARY first) — authoritative from CHAMPION_ROLES via
-// TIER_DATA.roles; falls back to patch roles by WR, then tag mapping.
+// Roles ordered by how much the champ actually plays them (most-played first).
 function roleListOrdered(champId) {
+  const st = champStats(champId)
+  if (st) return Object.keys(st).sort((a, b) => st[b].roleRate - st[a].roleRate)
   const td = TIER_DATA[champId] || {}
   if (td.roles && td.roles.length) return td.roles
   if (td.patch) return Object.keys(td.patch).sort((a, b) => td.patch[b][0] - td.patch[a][0])
@@ -782,16 +803,17 @@ function roleListOrdered(champId) {
   for (const t of (CHAMPS[champId]?.tags || [])) { const r = TAG_TO_ROLE[t]; if (r && !out.includes(r)) out.push(r) }
   return out
 }
-// How much a champion BELONGS in a role. Primary role dominates; off-roles (ok WR
-// but rarely actually played there) are heavily discounted. A real pick rate in
-// the role (matches played) can lift a secondary role only if it's truly played.
+// How much a champion BELONGS in a role — driven by its real op.gg role-rate, so
+// an off-role pick (rarely played there) is heavily discounted.
 function roleFit(champId, role) {
+  const st = champStats(champId)
+  if (st) {
+    const rr = st[role] ? st[role].roleRate : 0
+    return rr >= 0.5 ? 1.0 : rr >= 0.3 ? 0.82 : rr >= 0.18 ? 0.6 : rr >= 0.1 ? 0.4 : 0.22
+  }
   const list = roleListOrdered(champId)
   const idx = list.indexOf(role)
-  const pr = TIER_DATA[champId]?.patch?.[role]?.[1] ?? null
-  let fit = idx === 0 ? 1.0 : idx === 1 ? 0.70 : idx >= 2 ? 0.5 : 0.26
-  if (idx > 0 && pr !== null && pr >= 4) fit = Math.max(fit, 0.78)  // genuinely played there
-  return fit
+  return idx === 0 ? 1.0 : idx === 1 ? 0.70 : idx >= 2 ? 0.5 : 0.26
 }
 // How many champions hard-counter this one (reverse of COUNTERS) — a proxy for how
 // risky the champ is to reveal early, when the enemy can still pick its counter.
@@ -2016,15 +2038,10 @@ window.confirmSaveDraft = confirmSaveDraft
 window.openHistory = openHistory
 window.deleteHistory = deleteHistory
 
-// A champion's primary role (highest-WR patch role, else first listed role)
+// A champion's primary role — the one it's played most on op.gg (else fallback).
 function primaryRole(champId) {
-  const td = TIER_DATA[champId] || {}
-  if (td.patch) {
-    let best = null, bw = -1
-    for (const r in td.patch) if (td.patch[r][0] > bw) { bw = td.patch[r][0]; best = r }
-    if (best) return best
-  }
-  if (td.roles && td.roles.length) return td.roles[0]
+  const ordered = roleListOrdered(champId)
+  if (ordered.length) return ordered[0]
   const it = champRoles(champId).values().next()
   return it.done ? null : it.value
 }
@@ -2171,7 +2188,7 @@ function getSuggestions() {
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
-      const sub = (m.wr !== null ? `${role.toUpperCase()} ${m.wr}% WR · ${PATCH}` : role.toUpperCase()) + offTag
+      const sub = (m.wr !== null ? `${role.toUpperCase()} ${m.wr.toFixed(1)}% WR · ${PATCH}` : role.toUpperCase()) + offTag
       picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
     }
 
@@ -2195,7 +2212,7 @@ function getSuggestions() {
     const protectW = 0.22 + 0.14 * (ourPicks.length / 5)
     const banScore = threatToUs * protectW + breakBonus + openBonus
                    + mBest.score * 0.18 + proBan * 0.18 + prScore * 0.08
-    const banSub = mBest.wr !== null ? `${mBest.wr}% WR` : 'Ban target'
+    const banSub = mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target'
     bans.push({ id: c.id, score: Math.round(banScore * 100), reason: generateBanReason(c, ourPicks), sub: banSub })
   }
 
@@ -2228,7 +2245,7 @@ function getSoloSuggestions(allyPicks, enemyPicks, used) {
     if (!inRole) score *= 0.4          // strongly de-prioritise off-role comfort picks
     const sc100 = Math.max(0, Math.round(score * 100))
     const reason = generatePickReason(c, me, e, allyPicks, enemyPicks)
-    const sub = m.wr !== null ? `${m.wr}% WR · ${PATCH}${inRole ? '' : ' · off-role'}` : (inRole ? '' : 'off-role')
+    const sub = m.wr !== null ? `${m.wr.toFixed(1)}% WR · ${PATCH}${inRole ? '' : ' · off-role'}` : (inRole ? '' : 'off-role')
     picks.push({ id: c.id, score: sc100, reason, sub, inRole, verdict: pickVerdict(sc100) })
   }
 
