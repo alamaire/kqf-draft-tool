@@ -420,13 +420,14 @@ const KQF_ROSTER = [
 // Shown immediately so the roster is never empty; a live refresh enhances
 // these when the CORS proxy is reachable (OP.GG's API often blocks proxies).
 // {championId:[games, wins, winRate]}  — keyed by exact roster name.
+// Real top-10 ranked pools pulled from each player's OP.GG (2026-06-18).
 const SEED_POOLS = {
-  'thedrunkofrivia': [ [98,19,10,50],[113,4,2,57],[516,3,2,50],[111,3,2,75] ],
-  'teemoboy2011':    [ [60,64,44,69],[111,22,15,68],[59,17,8,47],[104,11,4,36],[20,10,3,30] ],
-  'styiebender':     [ [41,12,5,42],[54,5,3,60],[3,3,3,100],[79,3,2,67],[103,2,1,50] ],
-  'monkeydadam':     [ [21,58,37,64],[222,30,17,56],[115,5,2,38],[15,3,1,30],[145,3,2,60] ],
-  'yoitssam':        [ [412,13,8,59],[201,6,5,75],[53,5,3,56],[111,5,2,38],[518,5,5,100],[89,2,1,33] ],
-  'lp fisherman':    [ [901,67,28,42],[57,42,23,55],[526,16,9,56],[115,13,7,54],[910,10,7,70] ],
+  'thedrunkofrivia': [ [98,38,19,50],[113,7,4,57],[516,6,3,50],[111,4,3,75],[86,2,1,50],[150,2,1,50],[412,2,0,0],[421,1,1,100],[223,1,1,100],[127,1,0,0] ],
+  'teemoboy2011':    [ [60,64,44,69],[111,22,15,68],[59,17,8,47],[104,11,4,36],[20,10,3,30],[37,7,3,43],[54,5,4,80],[201,5,3,60],[427,5,3,60],[106,5,2,40] ],
+  'styiebender':     [ [41,12,5,42],[54,5,3,60],[3,3,3,100],[79,3,2,67],[103,2,1,50],[78,2,1,50],[99,1,1,100],[85,1,0,0],[80,1,0,0],[101,1,0,0] ],
+  'monkeydadam':     [ [21,91,58,64],[222,54,30,56],[115,13,5,38],[15,10,3,30],[13,8,2,25],[36,6,2,33],[145,5,3,60],[498,5,2,40],[268,4,1,25],[111,3,2,67] ],
+  'yoitssam':        [ [412,22,13,59],[111,13,5,38],[53,9,5,56],[201,8,6,75],[89,6,2,33],[518,5,5,100],[432,5,1,20],[26,4,2,50],[526,4,2,50],[12,3,2,67] ],
+  'lp fisherman':    [ [901,67,28,42],[57,42,23,55],[526,16,9,56],[115,13,7,54],[910,10,7,70],[42,10,4,40],[26,6,4,67],[111,6,4,67],[31,4,2,50] ],
 }
 function seedPoolFor(name) {
   const rows = SEED_POOLS[name.toLowerCase()]
@@ -470,9 +471,42 @@ const COUNTERS = {
   59:  [64,121,141],                                 // Jarvan IV → mobile junglers (knockup lockdown)
   60:  [64,141,234],                                 // Elise → early-weak junglers (early invade/gank)
 }
+// Real matchup data from op.gg champion counter pages (pulled 2026-06-18). For each
+// champion: `lose` = champs that BEAT it in lane, `win` = champs it beats. Names per
+// op.gg, resolved to ids at runtime via NAME_TO_ID. This is the AUTHORITATIVE source
+// for lane matchups; the curated COUNTERS map is only a fallback for champs not yet
+// covered here. Expanded daily by the refresh routine.
+const OPGG_COUNTERS = {
+  Zed:    { lose:['Smolder','Tristana','Kassadin','Ryze','Xin Zhao','Taliyah','Brand','Azir','Aurora','Cassiopeia'],
+            win: ['Malphite','Pantheon','Gragas','Riven','Katarina','Lux','Akshan','Vex','Diana','Sylas'] },
+  Ahri:   { lose:['Smolder','Azir','Gwen','Kayle','Malphite','Orianna',"Cho'Gath",'Sion','Jayce','Riven','Ryze','Irelia','Kassadin','Anivia','Aurelion Sol','Cassiopeia',"Vel'Koz",'Brand','Swain'],
+            win: ['Gragas','Talon','Ziggs','Fizz','Annie','Vladimir','Zoe','Vex','Lux','Diana','LeBlanc','Ekko','Akshan'] },
+  Syndra: { lose:['Viktor','Orianna','Ryze','Aurelion Sol','Azir','Mel','Nunu & Willump','Smolder','Tristana'],
+            win: ['Fizz','Talon','Xerath','Irelia','Naafiri','Ekko','Sion'] },
+  Sylas:  { lose:['Malphite','Tristana','Nunu & Willump','Smolder','Mel','Irelia','Azir','Jayce','Ekko','Orianna'],
+            win: ['Riven','Veigar','Gwen','Brand','Gragas','Sion',"Vel'Koz",'Naafiri','Kayle','Cassiopeia'] },
+  Yone:   { lose:['Ryze','Naafiri','Heimerdinger','Xin Zhao','Dr. Mundo','Sion','Nasus',"Cho'Gath",'Volibear','Malzahar','Tahm Kench','Rumble','Kayle','Udyr','Varus','Trundle','Gwen','Ornn'],
+            win: ['Master Yi','Aurora','Lissandra','Jax','Vladimir','Kled','Fiora','Irelia','Jayce','Gangplank','Akali','Riven','Singed','Anivia','Quinn'] },
+  Akali:  { lose:['Viktor','Yone','Ekko','Mel','Azir','Naafiri','Cassiopeia','Kayle','Akshan','LeBlanc'],
+            win: ['Nunu & Willump','Galio','Vex','Sion','Pantheon','Gragas','Kassadin','Lissandra','Qiyana'] },
+  Yasuo:  { lose:['Tristana','Mel','Orianna','Akshan','Xin Zhao','Nunu & Willump','Naafiri','Smolder','Sylas','Zed','Ryze','LeBlanc','Irelia','Ekko','Hwei','Talon','Aurora','Qiyana','Kassadin'],
+            win: ['Annie','Riven','Lissandra'] },
+}
+// Does champion A beat champion B in lane? op.gg data is authoritative when either
+// champ has a counter page (checks B's "loses-to" list and A's "beats" list); only
+// falls back to the curated kit-counter map when op.gg covers neither champ.
+function beatsInLane(aId, bId) {
+  const aN = CHAMPS[aId]?.name, bN = CHAMPS[bId]?.name
+  const aData = OPGG_COUNTERS[aN], bData = OPGG_COUNTERS[bN]
+  if (aData || bData) {
+    if (bData && bData.lose.includes(aN)) return true   // B loses to A
+    if (aData && aData.win.includes(bN)) return true    // A beats B
+    return false
+  }
+  return (COUNTERS[aId] || []).includes(bId)            // fallback: curated kit counters
+}
 function countersNamed(champId, enemyPicks) {
-  const list = COUNTERS[champId] || []
-  return [...new Set(enemyPicks.filter(id => list.includes(id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
+  return [...new Set(enemyPicks.filter(id => beatsInLane(champId, id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
 }
 
 // AD/AP damage classification — overrides where champion tags are ambiguous.
@@ -524,7 +558,7 @@ function synergyNames(champId, allyPicks) {
   return [...new Set(allyPicks.filter(id => list.includes(id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
 }
 function counteredByNames(champId, enemyPicks) {
-  return [...new Set(enemyPicks.filter(e => (COUNTERS[e] || []).includes(champId)).map(e => CHAMPS[e]?.name).filter(Boolean))]
+  return [...new Set(enemyPicks.filter(e => beatsInLane(e, champId)).map(e => CHAMPS[e]?.name).filter(Boolean))]
 }
 function synergyScore(champId, allyPicks) {
   return allyPicks.length ? Math.min(1, synergyNames(champId, allyPicks).length * 0.5) : 0
@@ -1424,11 +1458,14 @@ function getUsedIds() {
 
 // ── Suggestions ───────────────────────────────────────────────────────────
 
-// Signal 1: OP.GG pool — best familiarity among active players
-function bestFamiliarity(champId) {
+// Signal 1: OP.GG pool familiarity. ROLE-SCOPED — only the player who actually
+// plays that role contributes mastery (a support's high WR on a champ must NOT
+// recommend that champ for mid). Pass no role to consider all active players.
+function bestFamiliarity(champId, role) {
   let result = { score: 0, player: null, entry: null }
   for (const p of roster) {
-    if (!p.active) continue
+    if (!p.active || p.role === 'sub') continue
+    if (role && p.role !== role) continue   // only this role's player counts
     const entry = p.pool.find(e => e.championId === champId)
     if (!entry) continue
     let wr = entry.winRate
@@ -1502,7 +1539,7 @@ function counterScore(champ, enemyPicks) {
   }
   let s = total > 0 ? 0.35 + (beats / total) * 0.65 : 0.5
   // Specific hard counters carry the most weight — bonus per named matchup
-  const hardHits = (COUNTERS[champ.id] || []).filter(id => enemyPicks.includes(id)).length
+  const hardHits = enemyPicks.filter(id => beatsInLane(champ.id, id)).length
   if (hardHits) s = Math.min(1, s + 0.15 * hardHits)
   return s
 }
@@ -1521,8 +1558,8 @@ function laneOpponent(role, enemySide) {
 // class-based read of who beats whom. 0.5 = even / unknown.
 function laneMatchupScore(myId, oppId) {
   if (!oppId) return null
-  if ((COUNTERS[myId] || []).includes(oppId)) return 0.97      // we hard-counter them
-  if ((COUNTERS[oppId] || []).includes(myId)) return 0.12      // they hard-counter us
+  if (beatsInLane(myId, oppId)) return 0.95      // real data: we beat them in lane
+  if (beatsInLane(oppId, myId)) return 0.12      // real data: they beat us
   const me = CHAMPS[myId], opp = CHAMPS[oppId]
   if (!me || !opp) return 0.5
   let beats = 0, loses = 0
@@ -2010,8 +2047,6 @@ function getSuggestions() {
     if (used.has(c.id)) continue
     const proSc   = proScore(c.id)
     const comp    = compNeed(c, pAlly)
-    let { score: famScore, player, entry } = bestFamiliarity(c.id)
-    if (!isOurs) { famScore = 0; player = null; entry = null }  // enemy: ignore our roster
     const histBonus = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? historyBoost(c.id) : 0
 
     // PICKS — champ must be able to fill one of the OPEN roles; score it in its
@@ -2027,6 +2062,10 @@ function getSuggestions() {
         const mm = metaForRole(c.id, r), fr = roleFit(c.id, r), adj = mm.score * fr
         if (adj > bestAdj) { bestAdj = adj; m = mm; role = r; fit = fr }
       }
+      // Familiarity is ROLE-SCOPED: only the player who plays THIS role counts, so
+      // a support's pool can't recommend a champ for mid. Dropped for enemy preds.
+      const fam = isOurs ? bestFamiliarity(c.id, role) : { score: 0, player: null, entry: null }
+      const famScore = fam.score, player = fam.player, entry = fam.entry
       const syn = synergyScore(c.id, pAlly)
       const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy).length * 0.08)
 
