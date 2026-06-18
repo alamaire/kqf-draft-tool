@@ -31,14 +31,20 @@ async function getText(url) {
   return null;
 }
 
+// Unescape RSC chunk JSON: decode \uXXXX (e.g. & -> &) AND \" -> ", so champ
+// names like "Nunu & Willump" come through correctly.
+const unescapeJson = (s) => s
+  .replace(/\\+u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+  .replace(/\\"/g, '"');
+
 function parseCounters(html) {
-  const u = html.replace(/\\"/g, '"');
+  const u = unescapeJson(html);
   const out = {}; let m; COUNTER_RE.lastIndex = 0;
   while ((m = COUNTER_RE.exec(u))) out[m[4]] = +m[3];   // opp name -> opp wr vs this champ (%)
   return out;
 }
 function parseSynergy(html) {
-  const u = html.replace(/\\"/g, '"');
+  const u = unescapeJson(html);
   const out = {}; let m; SYN_RE.lastIndex = 0;
   while ((m = SYN_RE.exec(u))) {
     let wr = +m[3]; if (wr <= 1) wr = +(wr * 100).toFixed(2);   // fractions -> %
@@ -84,7 +90,7 @@ async function main() {
   for (const role of ROLES) {
     const h = await getText(`https://op.gg/lol/champions?position=${role}`);
     if (!h) continue;
-    const u = h.replace(/\\"/g, '"'); let m; STAT_RE.lastIndex = 0;
+    const u = unescapeJson(h); let m; STAT_RE.lastIndex = 0;
     while ((m = STAT_RE.exec(u))) {
       const name = m[1];
       (stats[name] = stats[name] || {})[role] = {
