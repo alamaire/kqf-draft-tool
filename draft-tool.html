@@ -667,6 +667,18 @@ function champArchetype(champId) {
   if (t.includes('Support')) return 'support'
   return (t[0] || '').toLowerCase()
 }
+// LANE OUTLOOK (factor: how the laning phase tends to go + ahead/behind). Approx
+// from op.gg: a champ's AVERAGE matchup win rate in its role = its general laning
+// strength (proxy for gold@14). `curve` = scaling (fine behind, wins late) vs
+// lane-bully (wins lane, snowballs ahead) vs even.
+function laneOutlook(champId, role) {
+  const avgWr = blindSafety(champId, role).avgWr
+  const strength = Math.max(0, Math.min(1, (avgWr - 48) / 6))   // 48%→0, 54%→1
+  let curve = 'even'
+  if (SCALING.has(champId)) curve = 'scaling'
+  else if (avgWr >= 51.5) curve = 'lane-bully'
+  return { strength, avgWr, curve }
+}
 function synergyScore(champId, allyPicks) {
   return allyPicks.length ? Math.min(1, synergyNames(champId, allyPicks).length * 0.5) : 0
 }
@@ -1869,6 +1881,13 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
     }
   }
 
+  // Laning outlook — how the lane tends to go + ahead/behind (factor #5).
+  const lo = laneOutlook(champ.id, laneRole)
+  if (lo.curve === 'scaling')
+    lines.push(`Scales — stays relevant even behind and takes over the longer the game goes.`)
+  else if (lo.curve === 'lane-bully')
+    lines.push(`Strong laner (~${Math.round(lo.avgWr)}% avg matchup) — can win the lane and snowball a lead.`)
+
   // Learned from our own saved drafts (grows as match history is built)
   if (histOk) {
     const hr = historyRecord(champ.id)
@@ -2243,10 +2262,13 @@ function getSuggestions() {
       const wSyn    = 0.12 + 0.06 * (aC / 5)                       // synergy #3
       const wLane   = laneOpp ? 0.18 : 0                           // matchup #4
       const wOthers = 0.07 * (otherEnemies.length / 4)             // raw counters #5
+      // Laning phase / gold@14 proxy — the champ's general lane strength (avg op.gg
+      // matchup WR). Light weight: the specific lane matchup above already leads.
+      const laneStr = laneOutlook(c.id, role).strength
       const proPk = proPickScore(c.id)
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + timing + histBonus - cByPen - offRolePen
+                  + laneStr * 0.08 + timing + histBonus - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
