@@ -530,13 +530,56 @@ const DMG = {
   50:'AP',127:'AP',60:'AP',518:'AP',
   238:'AD',91:'AD',121:'AD',107:'AD',555:'AD',246:'AD',
 }
+// itero per-champ record (phase strength, real AD/AP, total dmg, tankiness, gold@14)
+// for a role, else the champ's primary role.
+function champItero(champId, role) {
+  const rec = window.OPGG_DATA && window.OPGG_DATA.itero && window.OPGG_DATA.itero[CHAMPS[champId]?.name]
+  if (!rec) return null
+  if (role && rec[role]) return rec[role]
+  const pr = primaryRole(champId)
+  if (pr && rec[pr]) return rec[pr]
+  const k = Object.keys(rec)[0]
+  return k ? rec[k] : null
+}
+// AD/AP from REAL itero damage (physical vs magic dealt); falls back to curated/tags.
 function dmgType(c) {
   if (!c) return 'mixed'
+  const it = champItero(c.id)
+  if (it && it.ad != null && it.ap != null && (it.ad + it.ap) > 0) {
+    const adShare = it.ad / (it.ad + it.ap)
+    if (adShare >= 0.62) return 'AD'
+    if (adShare <= 0.38) return 'AP'
+    return 'mixed'
+  }
   if (DMG[c.id]) return DMG[c.id]
   if (c.tags.includes('Marksman')) return 'AD'
   if (c.tags.includes('Mage')) return 'AP'
   if (c.tags.includes('Fighter')) return 'AD'
   return 'mixed'
+}
+// CHAMPION IDENTITY from itero stats — accurate, data-driven (fixes generic lines).
+// damageThreat 0..1: how much damage it actually deals (carry vs utility).
+function damageThreat(champId, role) {
+  const it = champItero(champId, role)
+  if (it && it.dmg != null) return Math.max(0, Math.min(1, (it.dmg - 9000) / 15000))
+  const t = CHAMPS[champId]?.tags || []
+  return t.includes('Marksman') || t.includes('Mage') ? 0.7 : t.includes('Assassin') ? 0.6 : 0.35
+}
+// tankiness 0..1: how much damage it absorbs (frontline / durability).
+function tankiness(champId, role) {
+  const it = champItero(champId, role)
+  if (it && it.tank != null) return Math.max(0, Math.min(1, (it.tank - 16000) / 22000))
+  const t = CHAMPS[champId]?.tags || []
+  return t.includes('Tank') ? 0.85 : t.includes('Fighter') ? 0.55 : 0.2
+}
+// Sustained DPS / %HP champs that actually melt tanks in extended fights — NOT
+// burst mages or utility (so Annie/Neeko/Galio are correctly excluded).
+// Vayne, Kog'Maw, Fiora, Vladimir, Cassiopeia, Gwen, Teemo, Illaoi, Varus, Belveth.
+const SHRED = new Set([67, 96, 114, 8, 69, 887, 17, 420, 110, 200])
+function isTankShredder(champId) {
+  const c = CHAMPS[champId]; if (!c) return false
+  if (c.tags.includes('Marksman')) return true   // auto-attack DPS shreds tanks
+  return SHRED.has(champId)
 }
 // Teamfight roles (curated, kit-driven) for pro-style composition logic.
 const ENGAGE  = new Set([54,111,89,412,113,154,57,59,32,526,516,79,3,53,72,12,33,154])  // hard CC initiators
@@ -1841,9 +1884,13 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
     ctx = `Beats ${laneOppName} in the ${laneTag} matchup — a favorable lane.`
   else if (laneOppId && beatsInLane(laneOppId, champ.id))
     ctx = `Loses the ${laneTag} matchup to ${laneOppName} — needs jungle help or a swap.`
-  // Team-comp-framed reads (these the user does care about)
-  else if ((champ.tags.includes('Marksman') || champ.tags.includes('Mage')) && eTanks >= 2)
-    ctx = `Enemy is stacking ${eTanks} tanks — your damage is what shreds that frontline in extended fights.`
+  // Team-comp-framed reads (these the user does care about). Only TRUE sustained
+  // DPS / %HP champs "shred the frontline" — burst mages & utility do not.
+  else if (isTankShredder(champ.id) && eTanks >= 2)
+    ctx = `Enemy is stacking ${eTanks} tanks — your sustained DPS shreds that frontline in extended fights.`
+  // Burst/utility AP into a tanky enemy: frame it accurately (pick targets / utility).
+  else if ((champ.tags.includes('Mage') || champ.tags.includes('Assassin')) && eTanks >= 2 && damageThreat(champ.id, laneRole) >= 0.55)
+    ctx = `Enemy is stacking ${eTanks} tanks — your burst skips the frontline to delete their carries instead.`
   else if (champ.tags.includes('Tank') && eAssassins.length)
     ctx = `Soaks the burst from ${joinNames(eAssassins)} and keeps your carries alive.`
   else if (champ.tags.includes('Tank') && eDivers.length && !allyTags.includes('Tank'))
