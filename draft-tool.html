@@ -2195,30 +2195,52 @@ function getSuggestions() {
     // BANS — always our perspective. DON'T ban the strongest champion; ban what
     // BREAKS OUR draft: counters our picks / win condition, then answers for the
     // enemy's UNREVEALED roles (second-ban-phase), with raw strength last.
+    // ROLE-AWARE: the enemy can only PICK a champ that fits a role they still need.
+    // If every role it plays is already filled on their side, banning it is wasted.
+    const enemyOpen = openRolesFor(otherSide())
+    const champEnemyRoles = [...champRoles(c.id)]
+    const canBePicked = enemyOpen.length === 0 || champEnemyRoles.some(r => enemyOpen.includes(r))
+
     const threatToUs = counterScore(c, ourPicks)
     const mBest = metaForRole(c.id, null)
     const prScore = mBest.pr !== null ? Math.min(1, mBest.pr / 15) : 0.35
     // Hard-counters a champion we've already locked → top deny priority
-    const breaksUs = ourPicks.filter(a => (COUNTERS[c.id] || []).includes(a)).length
+    const breaksUs = ourPicks.filter(a => beatsInLane(c.id, a)).length
     const breakBonus = Math.min(0.22, breaksUs * 0.12)
-    // Second ban phase: shrink the enemy's draft tree — answers for roles they haven't shown
-    const enemyOpen = openRolesFor(otherSide())
-    const fillsEnemyOpen = theirPicks.length >= 1
-      && [...champRoles(c.id)].some(r => enemyOpen.includes(r))
-    const openBonus = fillsEnemyOpen ? 0.12 : 0
+    // Denying a strong option in a role the enemy STILL needs is the point of a ban.
+    const openBonus = (theirPicks.length >= 1 && canBePicked) ? 0.12 : 0
     // Pro ban priority — flexible / high-impact champs teams refuse to leave open.
     // Protecting our locked picks grows as we commit more of our comp.
     const proBan = proBanScore(c.id)
     const protectW = 0.22 + 0.14 * (ourPicks.length / 5)
-    const banScore = threatToUs * protectW + breakBonus + openBonus
-                   + mBest.score * 0.18 + proBan * 0.18 + prScore * 0.08
+    let banScore = threatToUs * protectW + breakBonus + openBonus
+                 + mBest.score * 0.18 + proBan * 0.18 + prScore * 0.08
+    // The enemy already filled every role this champ plays → they can't pick it →
+    // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
+    if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
     const banSub = mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target'
     bans.push({ id: c.id, score: Math.round(banScore * 100), reason: generateBanReason(c, ourPicks), sub: banSub })
   }
 
   picks.sort((a, b) => b.score - a.score)
   bans.sort((a, b) => b.score - a.score)
+  // Verdict is RELATIVE to the best available pick — the top of the list reads as a
+  // strong recommendation, not "weak here". (Absolute scores compress as more
+  // signals blend in, so a fixed threshold would mislabel the best picks.)
+  assignRelativeVerdicts(picks)
   return { picks: picks.slice(0, 10), bans: bans.slice(0, 8), roles: useRoles, isOurs, forSide }
+}
+
+// Label each pick by how it stands relative to the best suggestion in the list.
+function assignRelativeVerdicts(picks) {
+  const top = picks.length ? picks[0].score : 0
+  for (const p of picks) {
+    const r = top > 0 ? p.score / top : 0
+    p.verdict = r >= 0.9 ? { label: 'Strong pick', color: 'var(--green)' }
+              : r >= 0.75 ? { label: 'Solid',       color: 'var(--gold)' }
+              : r >= 0.58 ? { label: 'Situational', color: 'var(--gold-l)' }
+              :             { label: 'Weak here',    color: '#E87A65' }
+  }
 }
 
 // Solo Queue recommendations — best champ for SOLO_PLAYER to lock in, drawn
