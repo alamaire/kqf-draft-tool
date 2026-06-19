@@ -1882,7 +1882,7 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
 }
 
 // Situational ban reasoning — WHY removing this helps your comp right now.
-function generateBanReason(champ, allyPicks) {
+function generateBanReason(champ, allyPicks, enemyPicks, isEnemyWant, comfortHit) {
   const allyTags = allyPicks.flatMap(id => CHAMPS[id]?.tags || [])
   const backline = allyTags.filter(t => t === 'Mage' || t === 'Marksman').length
 
@@ -1890,6 +1890,15 @@ function generateBanReason(champ, allyPicks) {
   const beatsOurs = countersNamed(champ.id, allyPicks)
   if (beatsOurs.length)
     return `Hard-counters your ${joinNames(beatsOurs.slice(0, 2))} — banning it protects a pick you've already committed.`
+
+  // "Ban what the enemy wants next" — synergizes with their locked picks.
+  if (isEnemyWant && enemyPicks && enemyPicks.length) {
+    const partners = (enemyPicks || []).map(id => CHAMPS[id]?.name).filter(Boolean)
+    return `Pairs strongly with the enemy's ${joinNames(partners.slice(0, 2))} — likely their next pick, so deny it and force an awkward choice.`
+  }
+  // B1 — remove a blind-pick punisher of our comfort picks before we commit.
+  if (comfortHit)
+    return `Counters our ${comfortHit} — a blind-pick punisher, so banning it keeps that comfort pick safe to open with.`
 
   // High pro-priority ban — flexible / high-impact champ teams won't leave open.
   if (proBanScore(champ.id) >= 0.6)
@@ -2161,22 +2170,16 @@ function getSuggestions() {
   const allyByRole = {}
   DS[forSide].roles.forEach((r, i) => { if (DS[forSide].picks[i]) allyByRole[r] = DS[forSide].picks[i] })
 
-  // Equal-weight core signals, but let the SPECIFIC draft decide emphasis:
-  //   • mastery / solo-queue WR / pro presence are flat baseline strength
-  //   • comp-fit grows as the picking side reveals what it still needs
-  //   • counter grows sharply as the opponent reveals targets to punish
-  // Our roster mastery ONLY applies when WE pick — for predicting the enemy's
-  // picks we drop familiarity entirely and lean on meta + pro + counter.
-  // PRIORITY (per user): 1) the direct LANE-OPPONENT matchup, 2) comp fit + the
-  // OTHER enemy champs, then baseline strength (mastery / solo-WR / pro). Lane
-  // weight only applies once the lane opponent is revealed; until then we lean on
-  // strength + draftability (safe-blind / flex). Our roster mastery only counts
-  // when WE pick — for predicting the enemy's picks we drop familiarity.
+  // PRIORITY ORDER (drafting guide): 1) player COMFORT, 2) team IDENTITY/comp fit,
+  // 3) SYNERGY, 4) matchups, 5) raw counters ("counters matter less than people
+  // think"). So comfort is the heaviest baseline; comp + synergy form team identity;
+  // the lane matchup is important but does NOT dominate comfort. Our roster mastery
+  // only counts when WE pick — for enemy predictions we drop it and lean on meta/pro.
   const aC = pAlly.length
   const enemySide = isOurs ? otherSide() : mySide
   const W = isOurs
-    ? { fam:0.16, meta:0.14, pro:0.12, synBase:0.06 }
-    : { fam:0.00, meta:0.26, pro:0.22, synBase:0.04 }
+    ? { fam:0.24, meta:0.12, pro:0.10, synBase:0.10 }   // comfort #1
+    : { fam:0.00, meta:0.28, pro:0.22, synBase:0.04 }
 
   // Draftability context: can the OPPONENT still answer a lane we pick now? If they
   // have picks left and the role open, our pick is EXPOSED to a counter — so favor
@@ -2233,12 +2236,13 @@ function getSuggestions() {
       // Off-role discount so a champ out of its main role can't beat a comparable
       // champ playing where it actually belongs.
       const offRolePen = (1 - fit) * 0.16
-      // Weights: lane matchup dominates (#1); comp fit + other enemies next (#2);
-      // mastery / solo-WR / pro are the baseline. Recomputed on every pick & ban.
-      const wLane   = laneOpp ? 0.30 : 0
-      const wComp   = (laneOpp ? 0.16 : 0.22) + 0.06 * (aC / 5)
-      const wOthers = 0.12 * (otherEnemies.length / 4)
-      const wSyn    = 0.10 + 0.06 * (aC / 5)   // duos matter — weighted meaningfully
+      // Weights follow the guide's priority: team IDENTITY (comp) + SYNERGY are the
+      // strongest situational factors; the lane matchup matters but is secondary to
+      // comfort/identity; raw counters (other enemies) are last.
+      const wComp   = (laneOpp ? 0.20 : 0.26) + 0.06 * (aC / 5)   // team identity #2
+      const wSyn    = 0.12 + 0.06 * (aC / 5)                       // synergy #3
+      const wLane   = laneOpp ? 0.18 : 0                           // matchup #4
+      const wOthers = 0.07 * (otherEnemies.length / 4)             // raw counters #5
       const proPk = proPickScore(c.id)
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
@@ -2267,17 +2271,33 @@ function getSuggestions() {
     const breakBonus = Math.min(0.22, breaksUs * 0.12)
     // Denying a strong option in a role the enemy STILL needs is the point of a ban.
     const openBonus = (theirPicks.length >= 1 && canBePicked) ? 0.12 : 0
+    // THE HIDDEN BAN RULE — "ban what the enemy WANTS next". A champ that synergizes
+    // with the enemy's locked picks (and fits a role they still need) is their likely
+    // next pick — deny it to force an awkward choice.
+    let enemyWants = 0
+    if (canBePicked) for (const ep of theirPicks) enemyWants = Math.max(enemyWants, synergyQuality(c.id, ep))
+    // B1 PHILOSOPHY — before we've committed picks, bans should protect our intended
+    // first pick: remove blind-pick punishers of our roster's comfort champions.
+    let punishesComfort = 0, comfortHit = null
+    if (ourPicks.length <= 1) {
+      for (const p of roster) {
+        if (!p.active || p.role === 'sub') continue
+        const fav = (p.pool || [])[0]   // their most-played champ
+        if (fav && beatsInLane(c.id, fav.championId)) { punishesComfort = 0.16; comfortHit = CHAMPS[fav.championId]?.name; break }
+      }
+    }
     // Pro ban priority — flexible / high-impact champs teams refuse to leave open.
     // Protecting our locked picks grows as we commit more of our comp.
     const proBan = proBanScore(c.id)
     const protectW = 0.22 + 0.14 * (ourPicks.length / 5)
     let banScore = threatToUs * protectW + breakBonus + openBonus
-                 + mBest.score * 0.18 + proBan * 0.18 + prScore * 0.08
+                 + enemyWants * 0.20 + punishesComfort
+                 + mBest.score * 0.15 + proBan * 0.16 + prScore * 0.07
     // The enemy already filled every role this champ plays → they can't pick it →
     // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
     if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
     const banSub = mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target'
-    bans.push({ id: c.id, score: Math.round(banScore * 100), reason: generateBanReason(c, ourPicks), sub: banSub })
+    bans.push({ id: c.id, score: Math.round(banScore * 100), reason: generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit), sub: banSub })
   }
 
   picks.sort((a, b) => b.score - a.score)
