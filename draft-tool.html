@@ -609,6 +609,64 @@ function rolePairSynergy(champId, role, allyByRole) {
 function counteredByNames(champId, enemyPicks) {
   return [...new Set(enemyPicks.filter(e => beatsInLane(e, champId)).map(e => CHAMPS[e]?.name).filter(Boolean))]
 }
+
+// ── Champion identity & first-pickability ───────────────────────────────────
+// BLIND-SAFETY (0..1): how safe a champ is to reveal with no information, from the
+// real op.gg matchup table — a champ that wins most of its (same-role) matchups and
+// has few hard counters is safe to first-pick. {score, avgWr, hardCounters}.
+function blindSafety(champId, role) {
+  const cName = CHAMPS[champId]?.name
+  const cs = window.OPGG_DATA && window.OPGG_DATA.counters && window.OPGG_DATA.counters[cName]
+  if (!cs) return { score: 0.5, avgWr: 50, hardCounters: 0 }
+  let sum = 0, n = 0, hard = 0
+  for (const oppName in cs) {
+    const oppId = NAME_ID[oppName]
+    if (role && oppId != null && !champRoles(oppId).has(role)) continue   // same-lane matchups
+    const myWr = 100 - cs[oppName]   // champ's win rate vs this opponent
+    sum += myWr; n++
+    if (myWr <= 45) hard++           // a genuine hard counter (clearly losing)
+  }
+  if (!n) return { score: 0.5, avgWr: 50, hardCounters: 0 }
+  const avgWr = sum / n
+  // Centered at 0.5 for an even champ: few hard counters + winning matchups = safe.
+  const hardPart = Math.max(0, 1 - hard / 12)               // 0 counters→1, 12+→0
+  const wrPart = Math.max(0, Math.min(1, 0.5 + (avgWr - 50) / 6))  // 50%→.5, 53%→1
+  const s = hardPart * 0.55 + wrPart * 0.45
+  return { score: Math.max(0, Math.min(1, s)), avgWr, hardCounters: hard }
+}
+// Flexibility (0..1): how many roles the champ genuinely plays — flex picks hide
+// your plan and dodge counters, so they make better blind/first picks.
+function champFlex(champId) {
+  const st = champStats(champId)
+  if (!st) return champRoles(champId).size >= 2 ? 0.5 : 0
+  const n = Object.values(st).filter(d => d.roleRate >= 0.15).length
+  return n >= 3 ? 1 : n === 2 ? 0.6 : 0
+}
+// FIRST-PICK score (0..1): is this a good champion to OPEN the draft with? Blends
+// blind-safety, flexibility, and meta strength. Used while the lane is still
+// exposed (the opponent can answer it later).
+function firstPickScore(champId, role) {
+  const bs = blindSafety(champId, role).score
+  const flex = champFlex(champId)
+  const meta = metaForRole(champId, role).score
+  return bs * 0.5 + flex * 0.25 + meta * 0.25
+}
+// A short identity label for a champion (for reasons / UI).
+function champArchetype(champId) {
+  const c = CHAMPS[champId]; if (!c) return ''
+  const t = c.tags || []
+  if (ENGAGE.has(champId) && t.includes('Tank')) return 'engage tank'
+  if (PEEL.has(champId)) return 'enchanter'
+  if (t.includes('Tank')) return 'tank'
+  if (t.includes('Assassin')) return 'assassin'
+  if (POKE.has(champId)) return 'poke mage'
+  if (t.includes('Mage')) return 'mage'
+  if (SCALING.has(champId) && t.includes('Marksman')) return 'hypercarry'
+  if (t.includes('Marksman')) return 'marksman'
+  if (t.includes('Fighter')) return 'bruiser'
+  if (t.includes('Support')) return 'support'
+  return (t[0] || '').toLowerCase()
+}
 function synergyScore(champId, allyPicks) {
   return allyPicks.length ? Math.min(1, synergyNames(champId, allyPicks).length * 0.5) : 0
 }
@@ -894,7 +952,7 @@ const META = {
 }
 
 // ── App state ──────────────────────────────────────────────────────────────
-let CHAMPS = {}, CHAMP_LIST = [], TIER_DATA = {}
+let CHAMPS = {}, CHAMP_LIST = [], TIER_DATA = {}, NAME_ID = {}
 let mainTab = 'solo'   // solo | flex | ranked5
 let sugTab  = 'picks'
 let roleFilter = ''
@@ -976,6 +1034,7 @@ async function init() {
         img:`https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${id}.png` }
     }
     CHAMP_LIST = Object.values(CHAMPS).sort((a,b)=>a.name.localeCompare(b.name))
+    for (const c of CHAMP_LIST) NAME_ID[c.name] = c.id   // reverse lookup for op.gg names
     for (const c of CHAMP_LIST) {
       const m = META[c.key] || META[c.name.replace(/[' ]/g,'')] || null
       const td = m ? {tier:m.t,roles:m.r,pro:m.p??0} : {tier:3,roles:[],pro:0}
@@ -1787,12 +1846,14 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
     ctx = `Gives your comp a hard engage — right now you have no reliable way to start a fight on your terms.`
   else if (hasHyper && !hasPeelAlly && PEEL.has(champ.id))
     ctx = `Protects your hypercarry with peel and CC so they can scale up and take over late.`
-  // Early board — only worth saying when it's genuinely a safe-blind / flex pick.
-  // Otherwise stay quiet rather than print generic filler.
-  else if (!enemyPicks.length && champRoles(champ.id).size >= 2)
-    ctx = `Flexes across roles — safe to open with since it hides your plan and stays strong whatever they pick.`
-  else if (!enemyPicks.length && BLIND.has(champ.id))
-    ctx = `Safe to open with — hard to hard-counter before you've seen their picks.`
+  // Early board — data-driven first-pickability (flex / blind-safety from the real
+  // matchup table). Stay quiet if it's not actually a good opener.
+  else if (!enemyPicks.length && champFlex(champ.id) >= 0.6)
+    ctx = `Flexes across roles — a safe opener that hides your plan and dodges counters.`
+  else if (!enemyPicks.length && blindSafety(champ.id, laneRole).score >= 0.6) {
+    const bs = blindSafety(champ.id, laneRole)
+    ctx = `Safe blind pick — only ${bs.hardCounters} hard counter${bs.hardCounters === 1 ? '' : 's'} in the ${laneTag} pool, so it's hard to punish on sight.`
+  }
   // else: no real situational angle → leave ctx empty (no filler line)
 
   if (ctx) lines.push(ctx)
@@ -2161,16 +2222,13 @@ function getSuggestions() {
       // DRAFTABILITY / pick timing — only when the lane opp ISN'T revealed yet. If
       // the opponent can still answer this lane, the pick is EXPOSED: reward
       // flexible & blind-safe champs, punish fragile/narrow ones we'd telegraph.
-      const counterLane = (role === 'top' || role === 'mid')
       const exposed = !laneOpp && oppPicksLeft > 0 && oppOpenRoles.includes(role)
       let timing = 0
       if (exposed) {
-        if (BLIND.has(c.id)) timing += counterLane ? 0.07 : 0.11
-        if (cr.size >= 2) timing += 0.07                              // flex hides our lane
-        if (cr.size >= 3) timing += 0.04
-        if (!BLIND.has(c.id) && cr.size < 2) timing -= 0.08          // narrow + exposable
-        if (c.tags.includes('Assassin')) timing -= counterLane ? 0.08 : 0.05
-        timing -= Math.min(0.10, counterRiskCount(c.id) * 0.015)     // many known counters
+        // Data-driven first-pickability: reward safe/flexible openers, punish
+        // easily-countered ones (from the real op.gg matchup table + role spread).
+        const opener = blindSafety(c.id, role).score * 0.65 + champFlex(c.id) * 0.35
+        timing += (opener - 0.5) * 0.30
       }
       // Off-role discount so a champ out of its main role can't beat a comparable
       // champ playing where it actually belongs.
@@ -2268,10 +2326,11 @@ function getSoloSuggestions(allyPicks, enemyPicks, used) {
     const sc100 = Math.max(0, Math.round(score * 100))
     const reason = generatePickReason(c, me, e, allyPicks, enemyPicks)
     const sub = m.wr !== null ? `${m.wr.toFixed(1)}% WR · ${PATCH}${inRole ? '' : ' · off-role'}` : (inRole ? '' : 'off-role')
-    picks.push({ id: c.id, score: sc100, reason, sub, inRole, verdict: pickVerdict(sc100) })
+    picks.push({ id: c.id, score: sc100, reason, sub, inRole })
   }
 
   picks.sort((a, b) => b.score - a.score)
+  assignRelativeVerdicts(picks)
   if (picks.length) picks[0].best = true
   return { picks: picks.slice(0, 8), bans: [], roles: [soloRole] }
 }
