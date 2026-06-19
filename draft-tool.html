@@ -667,17 +667,25 @@ function champArchetype(champId) {
   if (t.includes('Support')) return 'support'
   return (t[0] || '').toLowerCase()
 }
-// LANE OUTLOOK (factor: how the laning phase tends to go + ahead/behind). Approx
-// from op.gg: a champ's AVERAGE matchup win rate in its role = its general laning
-// strength (proxy for gold@14). `curve` = scaling (fine behind, wins late) vs
-// lane-bully (wins lane, snowballs ahead) vs even.
+// LANE OUTLOOK (factor #5: how the laning phase tends to go + ahead/behind).
+// Uses itero.gg's REAL pre-14 lane gold diff (gold@14) when available — positive =
+// wins lane / ahead, negative = behind. Falls back to an op.gg avg-matchup-WR proxy.
 function laneOutlook(champId, role) {
+  const name = CHAMPS[champId]?.name
+  const g = window.OPGG_DATA && window.OPGG_DATA.gold14 && window.OPGG_DATA.gold14[name] && window.OPGG_DATA.gold14[name][role]
+  if (g != null) {
+    const strength = Math.max(0, Math.min(1, 0.5 + g / 900))   // +450g→1, -450g→0
+    let curve = 'even'
+    if (g >= 150) curve = 'lane-bully'
+    else if (g <= -150 || SCALING.has(champId)) curve = 'scaling'
+    return { strength, gold14: g, curve, avgWr: null }
+  }
   const avgWr = blindSafety(champId, role).avgWr
-  const strength = Math.max(0, Math.min(1, (avgWr - 48) / 6))   // 48%→0, 54%→1
+  const strength = Math.max(0, Math.min(1, (avgWr - 48) / 6))
   let curve = 'even'
   if (SCALING.has(champId)) curve = 'scaling'
   else if (avgWr >= 51.5) curve = 'lane-bully'
-  return { strength, avgWr, curve }
+  return { strength, gold14: null, avgWr, curve }
 }
 function synergyScore(champId, allyPicks) {
   return allyPicks.length ? Math.min(1, synergyNames(champId, allyPicks).length * 0.5) : 0

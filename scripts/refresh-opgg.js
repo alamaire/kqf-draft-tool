@@ -99,7 +99,36 @@ async function main() {
     }
   }
 
-  const payload = { v: ver, generated: new Date().toISOString(), counters, synergy, stats };
+  // ── itero.gg champ_table (DIAMOND+): phase strength, damage profile, tankiness,
+  // gold@14. itero[champName][role] = {gold14, early, mid, late, ad, ap, dmg, tank}.
+  const itero = {};
+  const LANE_MAP = { TOP: 'top', JUNGLE: 'jungle', MID: 'mid', BOTTOM: 'adc', UTILITY: 'support', SUPPORT: 'support' };
+  const ICOLS = {
+    gold14: 'pre14_lane_gold_diff',
+    early: 'all_early_wr_adj', mid: 'all_mid_wr_adj', late: 'all_late_wr_adj',
+    ad: 'all_physicalDamageDoneToChampions', ap: 'all_magicDamageDoneToChampions',
+    dmg: 'all_totalDamageDoneToChampions', tank: 'all_totalDamageTaken',
+  };
+  try {
+    const ir = await fetch('https://api.itero.gg/champ_table', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': UA['User-Agent'], Origin: 'https://www.itero.gg' },
+      body: JSON.stringify({ rank_class: 'DIAMOND', req_cols: Object.values(ICOLS) }),
+    });
+    const ij = await ir.json();
+    const val = (cell) => (cell && typeof cell === 'object' ? cell.stats : cell);
+    if (ij && ij.status_code === 200 && Array.isArray(ij.data)) {
+      for (const row of ij.data) {
+        const role = LANE_MAP[row.lane]; if (!role) continue;
+        const rec = {};
+        for (const k in ICOLS) { const v = val(row[ICOLS[k]]); if (v != null) rec[k] = +(+v).toFixed(2); }
+        if (Object.keys(rec).length) (itero[row.champion] = itero[row.champion] || {})[role] = rec;
+      }
+    }
+    console.log(`itero (DIAMOND): ${Object.keys(itero).length} champs`);
+  } catch (e) { console.log('itero pull failed:', e.message); }
+
+  const payload = { v: ver, generated: new Date().toISOString(), counters, synergy, stats, itero };
   fs.writeFileSync(OUT, 'window.OPGG_DATA = ' + JSON.stringify(payload) + ';\n');
   console.log(`Done. counters:${okC} synergy:${okS} stats:${Object.keys(stats).length} champs. Failed slugs: ${fail.join(', ') || 'none'}`);
   console.log(`Wrote ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);
