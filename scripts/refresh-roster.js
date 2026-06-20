@@ -76,12 +76,16 @@ async function main() {
     const b = bucket(mode);
     const won = team[0].win;
     b.record.games++; if (won) b.record.wins++;
+    const picks = {};   // nameKey -> championId for THIS game
     for (const p of team) {
       const k = puuidToKey[p.puuid];
+      picks[k] = p.championId;
       const pool = b.pools[k] = b.pools[k] || {};
       const c = pool[p.championId] = pool[p.championId] || { championId: p.championId, games: 0, wins: 0 };
       c.games++; if (p.win) c.wins++;
     }
+    // per-game record (for the match-history list + per-game analysis)
+    (b.games = b.games || []).push({ id, win: won, date: md.info.gameEndTimestamp || md.info.gameCreation || 0, picks });
   }
 
   // shape: each mode + an "all" combined bucket
@@ -89,11 +93,13 @@ async function main() {
     record: b.record,
     pools: Object.fromEntries(Object.entries(b.pools).map(([k, m]) =>
       [k, Object.values(m).map(c => ({ ...c, winRate: c.games ? Math.round(c.wins / c.games * 100) : 0 })).sort((a, z) => z.games - a.games)])),
+    games: (b.games || []).sort((a, z) => z.date - a.date),
   });
   const all = bucket('_all_'); // build combined
   for (const m of Object.keys(buckets)) {
     if (m === '_all_') continue;
     const b = buckets[m]; all.record.games += b.record.games; all.record.wins += b.record.wins;
+    (all.games = all.games || []).push(...(b.games || []));
     for (const k in b.pools) for (const cid in b.pools[k]) {
       const src = b.pools[k][cid];
       const pool = all.pools[k] = all.pools[k] || {};

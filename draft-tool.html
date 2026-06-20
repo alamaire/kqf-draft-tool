@@ -321,6 +321,15 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .track-sub{font-size:9px;color:var(--gray-l);margin-top:2px}
 .tracker .good{color:var(--green)}
 .tracker .bad{color:#E87A65}
+.rg-list-lbl{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--gold);margin-top:4px}
+.rg-list{display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto}
+.rg-row{display:flex;align-items:center;gap:8px;padding:3px 8px;border:1px solid var(--gold-d);border-radius:4px;background:var(--dark3)}
+.rg-res{width:16px;height:16px;border-radius:3px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff}
+.rg-res.w{background:var(--green)}
+.rg-res.l{background:var(--red)}
+.rg-date{font-size:9px;color:var(--gray-l);width:42px;flex-shrink:0}
+.rg-champs{display:flex;gap:3px;flex-wrap:wrap}
+.rg-champ{width:22px;height:22px;border-radius:3px;border:1px solid var(--gold-d)}
 .bans-toggle-row{display:flex;align-items:center;gap:6px}
 .bans-toggle-lbl{font-size:10px;color:var(--gray-l);font-weight:600;letter-spacing:1px}
 .ban-slot-x{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:var(--red);border:none;color:white;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:2;line-height:1}
@@ -1620,14 +1629,22 @@ function renderTracker(el) {
   const wrCls = w => w >= 50 ? 'good' : 'bad'
   const cards = roster.map(p => {
     const rec = playerRecord(p.name)
-    const pool = (b && b.pools && b.pools[p.name]) || []
-    const top = pool[0] ? `${CHAMPS[pool[0].championId]?.name} ${pool[0].wins}-${pool[0].games - pool[0].wins}` : '—'
     return `<div class="track-card ${p.active ? '' : 'out'}">
       <div class="track-name" title="${p.display || p.name}">${p.display || p.name}</div>
       <div class="track-role">${ROLE_LABELS[p.role] || p.role}</div>
       <div class="track-rec"><b>${rec.wins}-${rec.losses}</b> <span class="${wrCls(rec.wr)}">${rec.games ? rec.wr + '%' : '—'}</span></div>
-      <div class="track-sub">${rec.games} game${rec.games !== 1 ? 's' : ''} · most: ${top}</div>
+      <div class="track-sub">${rec.games} game${rec.games !== 1 ? 's' : ''}</div>
     </div>`
+  }).join('')
+  // Individual games — the actual full-roster match history for this mode.
+  const games = (b && b.games) || []
+  const gamesHtml = games.map(g => {
+    const champs = roster.filter(p => g.picks[p.name]).map(p => {
+      const c = CHAMPS[g.picks[p.name]]
+      return c ? `<img class="rg-champ" src="${c.img}" title="${(p.display || p.name)}: ${c.name}" alt="${c.name}"/>` : ''
+    }).join('')
+    const d = g.date ? new Date(g.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+    return `<div class="rg-row"><span class="rg-res ${g.win ? 'w' : 'l'}">${g.win ? 'W' : 'L'}</span><span class="rg-date">${d}</span><span class="rg-champs">${champs}</span></div>`
   }).join('')
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
@@ -1637,6 +1654,7 @@ function renderTracker(el) {
       <span class="track-team-n">${tr.games} full-roster game${tr.games !== 1 ? 's' : ''}</span>
     </div>
     <div class="track-cards">${cards}</div>
+    ${games.length ? `<div class="rg-list-lbl">Match history (${games.length})</div><div class="rg-list">${gamesHtml}</div>` : ''}
     ${tr.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet${mainTab === 'ranked5' ? " — Ranked 5's launches Jun 26" : ''}. Play a full 5-stack, then refresh the Riot data.</div>`}
   </div>`
 }
@@ -1918,6 +1936,59 @@ function rosterGameEntry(playerKey, champId) {
   const b = rosterBucket(false)
   if (!b || !b.pools || !b.pools[playerKey]) return null
   return b.pools[playerKey].find(e => e.championId === champId) || null
+}
+// Per-game analysis of our real roster games: champ-pair win records (which two
+// champs win when on our team together). Memoized per data version + mode.
+let _rgStatsCache = { key: null, val: null }
+function rosterGameStats() {
+  const b = rosterBucket(false)
+  const gen = (window.ROSTER_DATA && window.ROSTER_DATA.generated) || ''
+  const games = (b && b.games) || []
+  const mode = b === (window.ROSTER_DATA && window.ROSTER_DATA.flex) ? 'flex'
+    : b === (window.ROSTER_DATA && window.ROSTER_DATA.ranked5) ? 'ranked5' : 'all'
+  const key = gen + ':' + mode + ':' + games.length
+  if (_rgStatsCache.key === key) return _rgStatsCache.val
+  const pair = {}
+  for (const g of games) {
+    const ids = Object.values(g.picks)
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+      const k = ids[i] < ids[j] ? ids[i] + '|' + ids[j] : ids[j] + '|' + ids[i]
+      const p = pair[k] = pair[k] || { w: 0, l: 0 }
+      g.win ? p.w++ : p.l++
+    }
+  }
+  _rgStatsCache = { key, val: { pair } }
+  return _rgStatsCache.val
+}
+// Boost a candidate champ if it has WON alongside already-locked allies in our
+// real roster games (≥2 games together). Penalizes pairs that keep losing.
+function rosterPairBoost(champId, allyPicks) {
+  const st = rosterGameStats(); if (!st) return 0
+  let boost = 0, n = 0
+  for (const a of allyPicks) {
+    if (!a || a === champId) continue
+    const k = champId < a ? champId + '|' + a : a + '|' + champId
+    const p = st.pair[k]; if (!p || p.w + p.l < 2) continue
+    boost += (p.w / (p.w + p.l) - 0.5) * 0.12; n++
+  }
+  return n ? Math.max(-0.08, Math.min(0.14, boost)) : 0
+}
+// The most decisive pair record (with a locked ally) for the pick reason, or ''.
+function rosterPairNote(champId, allyPicks) {
+  const st = rosterGameStats(); if (!st) return ''
+  let best = null
+  for (const a of (allyPicks || [])) {
+    if (!a || a === champId) continue
+    const k = champId < a ? champId + '|' + a : a + '|' + champId
+    const p = st.pair[k]; if (!p || p.w + p.l < 2) continue
+    const wr = p.w / (p.w + p.l)
+    if (!best || Math.abs(wr - 0.5) > Math.abs(best.wr - 0.5)) best = { a, w: p.w, l: p.l, wr }
+  }
+  if (!best) return ''
+  const ally = (CHAMPS[best.a] && CHAMPS[best.a].name) || 'an ally'
+  return best.wr >= 0.5
+    ? `In our games it's ${best.w}-${best.l} alongside ${ally}.`
+    : `Caution — only ${best.w}-${best.l} with ${ally} in our games.`
 }
 // Roster familiarity (role-scoped). LEANS ON the roster's real games-together
 // (ROSTER_DATA) over solo-queue (op.gg): team games reach confidence faster, get a
@@ -2239,6 +2310,9 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
       const tone = hr.wr >= 50 ? 'a strong record' : 'a losing record'
       lines.push(`Your saved drafts show ${tone}: ${hr.w}-${hr.l} (${hr.wr}%) on it.`)
     }
+    // Learned from REAL roster games: a winning/losing pairing with a locked ally
+    const pn = rosterPairNote(champ.id, allyPicks)
+    if (pn) lines.push(pn)
   }
 
   return lines.join(' ')
@@ -2561,6 +2635,8 @@ function getSuggestions() {
     const proSc   = proScore(c.id)
     const comp    = compNeed(c, pAlly)
     const histBonus = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? historyBoost(c.id) : 0
+    // Real roster games: reward champs that win alongside our locked allies.
+    const rgPair = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? rosterPairBoost(c.id, pAlly) : 0
 
     // PICKS — champ must be able to fill one of the OPEN roles; score it in its
     // strongest open role (so it competes across every role still needed).
@@ -2621,7 +2697,7 @@ function getSuggestions() {
       const proPk = proPickScore(c.id)
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStr * 0.06 + timingFit + timing + histBonus - cByPen - offRolePen
+                  + laneStr * 0.06 + timingFit + timing + histBonus + rgPair - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
