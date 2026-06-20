@@ -3,7 +3,7 @@
 A League of Legends draft assistant for the KQF roster — live pick/ban suggestions,
 detailed comp analysis, and draft history. Single-file web app ([draft-tool.html](draft-tool.html)).
 
-**Live site:** _(GitHub Pages URL goes here once deployed)_
+**Live site:** https://monkeydadamlol.github.io/kqf-draft-tool/
 
 ## Features
 - Solo Queue / Flex / Ranked 5's modes, with blue/red side selection
