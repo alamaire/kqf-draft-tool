@@ -2700,6 +2700,18 @@ function getDraftVerdict() {
   if (bPro > rPro + 3) { bScore++; reasons.push('Blue drafted more pro-validated picks') }
   else if (rPro > bPro + 3) { rScore++; reasons.push('Red drafted more pro-validated picks') }
 
+  // Real (itero) damage balance + threat saturation + timing
+  const bp = teamProfile('blue'), rp = teamProfile('red')
+  const lop = p => p.adPct >= 82 || p.apPct >= 82
+  if (lop(bp) && !lop(rp)) { rScore++; reasons.push(`Blue's damage is one-sided (${bp.adPct}/${bp.apPct} AD/AP) and easily itemized against`) }
+  else if (lop(rp) && !lop(bp)) { bScore++; reasons.push(`Red's damage is one-sided (${rp.adPct}/${rp.apPct} AD/AP) and easily itemized against`) }
+  if (bp.threats >= 3 && rp.threats <= 1) { bScore++; reasons.push('Blue has more carry threats to spread enemy focus') }
+  else if (rp.threats >= 3 && bp.threats <= 1) { rScore++; reasons.push('Red has more carry threats to spread enemy focus') }
+  // Timing context (not scored — just flags who must do what)
+  if (bp.timing !== rp.timing && bp.timing !== 'balanced' && rp.timing !== 'balanced')
+    reasons.push(`Blue ${bp.timing === 'scaling' ? 'scales' : 'is early-game'} vs Red ${rp.timing === 'scaling' ? 'scales' : 'is early-game'} — ${bp.timing === 'scaling' ? 'Blue must survive early' : 'Blue must close before late'}`)
+
+  const bDraft = draftQualityScore(bp), rDraft = draftQualityScore(rp)
   const diff = bScore - rScore
   const side = diff > 0 ? 'Blue' : diff < 0 ? 'Red' : null
   const sideColor = side === 'Blue' ? 'var(--blue)' : 'var(--red)'
@@ -2718,10 +2730,24 @@ function getDraftVerdict() {
     if (side === 'Blue') return r.toLowerCase().includes('blue')
     if (side === 'Red') return r.toLowerCase().includes('red')
     return true
-  }).slice(0, 2)
+  }).slice(0, 3)
   const extra = topReasons.length ? ' ' + topReasons.join('. ') + '.' : ''
+  const scoreLine = `Draft quality — Blue ${bDraft}/100 · Red ${rDraft}/100. `
 
-  return { verdict: verdict + extra, verdictColor }
+  return { verdict: scoreLine + verdict + extra, verdictColor }
+}
+// Overall draft-quality score 0..100 from the universal checklist (frontline,
+// mixed damage, engage/CC, threat saturation, clear win condition, peel).
+function draftQualityScore(p) {
+  let s = 50
+  s += (p.hasTank || (p.frontline || 0) >= 1) ? 9 : -12       // frontline
+  s += (p.hasAD && p.hasAP) ? 9 : -7                          // mixed damage
+  if (p.adPct >= 85 || p.apPct >= 85) s -= 6                  // one-sided
+  s += (p.engage >= 1 || p.cc >= 2) ? 7 : -9                  // initiation
+  s += (p.threats || 0) >= 2 ? 9 : (p.threats || 0) <= 1 ? -7 : 0   // threat saturation
+  s += compArchetype(p) !== 'Flexible' ? 7 : -3              // clear win condition
+  if (p.hyper && p.peel >= 1) s += 4                          // protect the hypercarry
+  return Math.max(0, Math.min(100, Math.round(s)))
 }
 
 // ── Live team-comp planner (Ranked 5's / Flex team draft) ───────────────────
@@ -2732,6 +2758,11 @@ const WINCON = {
   'Front-to-back': 'Peel for your carry and win the long teamfight front-to-back.',
   'Engage':        'Land your engage and win the 5v5 at an objective.',
   'Flexible':      'Flexible so far — lock a clear win condition with your next picks.',
+}
+function timingLabel(t) { return t === 'early' ? 'Early-game' : t === 'scaling' ? 'Scaling' : 'Balanced' }
+function timingAdvice(t) {
+  return t === 'early' ? 'Force fights & objectives early — close before they scale.'
+       : t === 'scaling' ? 'Play safe early, scale up, win the late game.' : ''
 }
 function teamProfile(side) {
   const ids = DS[side].picks.filter(Boolean)
@@ -2762,7 +2793,21 @@ function teamProfile(side) {
     tanks: tags.filter(t => t === 'Tank').length,
     assassins: tags.filter(t => t === 'Assassin').length,
     hyper: champs.some(c => SCALING.has(c.id) && c.tags.includes('Marksman')),
+    ...teamTimingProfile(ids),
   }
+}
+// Real itero phase strength + threat saturation + frontline for a set of picks.
+function teamTimingProfile(ids) {
+  const ev = [], lv = []
+  for (const id of ids) { const it = champItero(id); if (it) { if (it.early != null) ev.push(it.early); if (it.late != null) lv.push(it.late) } }
+  const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 1
+  const earlyAvg = mean(ev), lateAvg = mean(lv)
+  let timing = 'balanced'
+  if (earlyAvg - lateAvg >= 0.03) timing = 'early'
+  else if (lateAvg - earlyAvg >= 0.03) timing = 'scaling'
+  const threats = ids.filter(id => damageThreat(id) >= 0.55).length      // real damage carries
+  const frontline = ids.filter(id => tankiness(id) >= 0.6).length        // real durable bodies
+  return { earlyAvg: +earlyAvg.toFixed(2), lateAvg: +lateAvg.toFixed(2), timing, threats, frontline }
 }
 // Rate a 0..n count into Low / Med / High with a color, for the comp stat grid.
 function rateLevel(v, hi, mid) {
@@ -2781,11 +2826,13 @@ function compArchetype(p) {
 }
 function compNeeds(p) {
   const need = []
-  if (!p.hasTank) need.push('frontline')
-  if (!p.hasMarks && p.scaling === 0) need.push('a primary carry')
+  if (!p.hasTank && (p.frontline || 0) === 0) need.push('frontline')
+  if ((p.threats || 0) === 0) need.push('a primary carry')
+  else if ((p.threats || 0) <= 1 && p.n >= 3) need.push('a 2nd damage threat')   // threat saturation
   if (p.hasAD && !p.hasAP) need.push('AP damage')
   if (p.hasAP && !p.hasAD) need.push('AD damage')
   if (p.engage === 0 && p.cc < 2) need.push('engage / CC')
+  else if (p.engage === 1 && p.n >= 4 && ['Engage', 'Dive'].includes(compArchetype(p))) need.push('a 2nd engage tool')  // engage redundancy
   if (p.hyper && p.peel === 0) need.push('peel for your carry')
   return need
 }
@@ -2820,14 +2867,14 @@ function renderComp() {
       const arch = compArchetype(p), needs = compNeeds(p)
       html += `<div class="wc-block ${usCls}">
         <div class="wc-lbl">Your comp plan</div>
-        <div class="wc-item">Building: <b>${arch}</b></div>
-        <div class="wc-item" style="color:var(--gray-l)">${WINCON[arch]||''}</div>
+        <div class="wc-item">Building: <b>${arch}</b> · <b>${timingLabel(p.timing)}</b></div>
+        <div class="wc-item" style="color:var(--gray-l)">${WINCON[arch]||''} ${timingAdvice(p.timing)}</div>
         <div class="wc-item">${needs.length ? 'Still need: <b>'+needs.join(', ')+'</b>' : 'Core boxes covered ✓ — now pick for power & matchups'}</div>
       </div>`
     }
     if (e.n) {
       const earch = compArchetype(e)
-      html += `<div class="wc-block ${themCls}"><div class="wc-lbl">Enemy shaping up as</div><div class="wc-item">${earch}${e.n<5?' (so far)':''}</div></div>`
+      html += `<div class="wc-block ${themCls}"><div class="wc-lbl">Enemy shaping up as</div><div class="wc-item">${earch} · ${timingLabel(e.timing)}${e.n<5?' (so far)':''}</div></div>`
     }
     document.getElementById('comp-warnings').innerHTML = html ||
       '<div class="empty-msg">Pick champions to see your comp plan build live.</div>'
