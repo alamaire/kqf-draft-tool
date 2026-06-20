@@ -288,6 +288,22 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .pv-btn{padding:4px 10px;border-radius:4px;border:1px solid var(--gold-d);color:var(--gold-l);background:transparent;cursor:pointer;font-size:10px;font-weight:700;letter-spacing:.5px;transition:all .15s;white-space:nowrap}
 .pv-btn.active{background:var(--gold-d);color:var(--gold-l);border-color:var(--gold)}
 .pv-btn:not(.active):hover{filter:brightness(1.3)}
+/* Roster Tracker view */
+.tracker{width:100%;display:flex;flex-direction:column;gap:8px}
+.track-team{display:flex;align-items:center;gap:12px;padding:6px 12px;border:1px solid var(--gold-d);border-radius:5px;background:var(--dark3)}
+.track-team-lbl{font-size:10px;font-weight:700;letter-spacing:2px;color:var(--gold)}
+.track-team-rec{font-size:16px;font-weight:800;color:var(--gold-l)}
+.track-team-wr{font-size:14px;font-weight:800}
+.track-team-n{font-size:10px;color:var(--gray-l);margin-left:auto}
+.track-cards{display:flex;gap:6px;flex-wrap:wrap}
+.track-card{flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--gold-d);border-radius:5px;background:var(--dark2)}
+.track-card.out{opacity:.45}
+.track-name{font-size:12px;font-weight:700;color:var(--gold-l);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track-role{font-size:9px;font-weight:700;letter-spacing:1px;color:var(--blue);margin-bottom:4px}
+.track-rec{font-size:15px;font-weight:800;color:var(--gold-l)}
+.track-sub{font-size:9px;color:var(--gray-l);margin-top:2px}
+.tracker .good{color:var(--green)}
+.tracker .bad{color:#E87A65}
 .bans-toggle-row{display:flex;align-items:center;gap:6px}
 .bans-toggle-lbl{font-size:10px;color:var(--gray-l);font-weight:600;letter-spacing:1px}
 .ban-slot-x{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:var(--red);border:none;color:white;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:2;line-height:1}
@@ -345,9 +361,10 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
     <button class="side-btn red" id="side-red" onclick="setMySide('red')">Red</button>
   </div>
   <div class="side-select" id="pool-view-select">
-    <span class="roster-label">Pool</span>
+    <span class="roster-label">View</span>
     <button class="pv-btn active" id="pv-opgg" onclick="setPoolView('opgg')">OP.GG</button>
-    <button class="pv-btn" id="pv-draft" onclick="setPoolView('drafttool')" title="Champions the roster has actually drafted in saved games">Draft Tool</button>
+    <button class="pv-btn" id="pv-draft" onclick="setPoolView('drafttool')" title="Champions the roster has drafted in saved games">Draft Tool</button>
+    <button class="pv-btn" id="pv-tracker" onclick="setPoolView('tracker')" title="Games played & win rates from saved roster games">Tracker</button>
   </div>
   <span class="roster-label">Roster</span>
   <div id="roster-cards"></div>
@@ -1115,9 +1132,29 @@ function setPoolView(v) {
   poolView = v
   document.getElementById('pv-opgg').classList.toggle('active', v === 'opgg')
   document.getElementById('pv-draft').classList.toggle('active', v === 'drafttool')
+  document.getElementById('pv-tracker').classList.toggle('active', v === 'tracker')
   renderRoster()
 }
 window.setPoolView = setPoolView
+// A player's win/loss record across our SAVED roster games (website match history).
+function playerRecord(displayName) {
+  let games = 0, wins = 0
+  for (const d of historyLoad()) {
+    if (d.result !== 'win' && d.result !== 'loss') continue
+    const our = d.ourSide || 'blue'
+    const names = (d[our] && d[our].names) || []
+    if (names.includes(displayName)) { games++; if (d.result === 'win') wins++ }
+  }
+  return { games, wins, losses: games - wins, wr: games ? Math.round(wins / games * 100) : 0 }
+}
+// Overall team record across saved games.
+function teamRecord() {
+  let games = 0, wins = 0
+  for (const d of historyLoad()) {
+    if (d.result === 'win') { games++; wins++ } else if (d.result === 'loss') games++
+  }
+  return { games, wins, losses: games - wins, wr: games ? Math.round(wins / games * 100) : 0 }
+}
 const roster = KQF_ROSTER.map(p => ({
   ...p,
   role: p.defaultRole,
@@ -1395,6 +1432,9 @@ function renderRoster() {
   const isRanked5 = mainTab === 'ranked5'
   const isFlex    = mainTab === 'flex'
 
+  // TRACKER view — games played & win rates from our saved roster games.
+  if (poolView === 'tracker') { renderTracker(el); return }
+
   el.innerHTML = roster.map((p, i) => {
     const isSub = p.isSub
     const isActive = p.active
@@ -1462,6 +1502,33 @@ function renderRoster() {
             : ''}
     </div>`
   }).join('')
+}
+
+// Tracker view — team + per-player games/win-rate from our saved roster games.
+function renderTracker(el) {
+  const tr = teamRecord()
+  const wrCls = w => w >= 50 ? 'good' : 'bad'
+  const cards = roster.map(p => {
+    const rec = playerRecord(p.display || p.name)
+    const pool = draftToolPool(p.display || p.name)
+    const top = pool[0] ? `${CHAMPS[pool[0].championId]?.name} ${pool[0].wins}-${pool[0].games - pool[0].wins}` : '—'
+    return `<div class="track-card ${p.active ? '' : 'out'}">
+      <div class="track-name" title="${p.display || p.name}">${p.display || p.name}</div>
+      <div class="track-role">${ROLE_LABELS[p.role] || p.role}</div>
+      <div class="track-rec"><b>${rec.wins}-${rec.losses}</b> <span class="${wrCls(rec.wr)}">${rec.games ? rec.wr + '%' : '—'}</span></div>
+      <div class="track-sub">${rec.games} game${rec.games !== 1 ? 's' : ''} · most: ${top}</div>
+    </div>`
+  }).join('')
+  el.innerHTML = `<div class="tracker">
+    <div class="track-team">
+      <span class="track-team-lbl">TEAM RECORD</span>
+      <span class="track-team-rec">${tr.wins}-${tr.losses}</span>
+      <span class="track-team-wr ${wrCls(tr.wr)}">${tr.games ? tr.wr + '%' : '—'}</span>
+      <span class="track-team-n">${tr.games} saved game${tr.games !== 1 ? 's' : ''}</span>
+    </div>
+    <div class="track-cards">${cards}</div>
+    ${tr.games ? '' : '<div class="empty-msg">No saved games yet — finish a Ranked 5\'s draft, hit Save Draft, and mark Win/Loss to start tracking.</div>'}
+  </div>`
 }
 
 function setPlayerRole(idx, role) {
