@@ -285,6 +285,9 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .side-btn.red{border-color:var(--red);color:#E87A65}
 .side-btn.red.active{background:var(--red);color:white}
 .side-btn:not(.active):hover{filter:brightness(1.3)}
+.pv-btn{padding:4px 10px;border-radius:4px;border:1px solid var(--gold-d);color:var(--gold-l);background:transparent;cursor:pointer;font-size:10px;font-weight:700;letter-spacing:.5px;transition:all .15s;white-space:nowrap}
+.pv-btn.active{background:var(--gold-d);color:var(--gold-l);border-color:var(--gold)}
+.pv-btn:not(.active):hover{filter:brightness(1.3)}
 .bans-toggle-row{display:flex;align-items:center;gap:6px}
 .bans-toggle-lbl{font-size:10px;color:var(--gray-l);font-weight:600;letter-spacing:1px}
 .ban-slot-x{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:var(--red);border:none;color:white;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:2;line-height:1}
@@ -340,6 +343,11 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
     <span class="roster-label">Our side</span>
     <button class="side-btn blue active" id="side-blue" onclick="setMySide('blue')">Blue</button>
     <button class="side-btn red" id="side-red" onclick="setMySide('red')">Red</button>
+  </div>
+  <div class="side-select" id="pool-view-select">
+    <span class="roster-label">Pool</span>
+    <button class="pv-btn active" id="pv-opgg" onclick="setPoolView('opgg')">OP.GG</button>
+    <button class="pv-btn" id="pv-draft" onclick="setPoolView('drafttool')" title="Champions the roster has actually drafted in saved games">Draft Tool</button>
   </div>
   <span class="roster-label">Roster</span>
   <div id="roster-cards"></div>
@@ -1044,6 +1052,7 @@ let banSideActive = null    // 'blue' | 'red' | null — which side is being fil
 let mySide = 'blue'         // flex/ranked5 — which side KQF is on (blue picks first;
                             // red gets counter-pick / last pick). Drives ally/enemy.
 const otherSide = () => (mySide === 'blue' ? 'red' : 'blue')
+let poolView = 'opgg'       // roster card pool source: 'opgg' (soloq) | 'drafttool' (saved games)
 
 // Solo Queue mode: personal pick helper for one roster member
 const SOLO_PLAYER = 'monkeydadam'
@@ -1080,6 +1089,35 @@ function matchHistoryPool(name) {
   const live = window.OPGG_DATA && window.OPGG_DATA.pools && window.OPGG_DATA.pools[name.toLowerCase()]
   return (live && live.length) ? live.map(e => ({ ...e })) : seedPoolFor(name)
 }
+// "Draft Tool" pool — champions THIS player has actually been drafted on in our
+// SAVED games (roster played together), with our real win/loss on them.
+function draftToolPool(displayName) {
+  const agg = {}
+  for (const d of historyLoad()) {
+    if (d.result !== 'win' && d.result !== 'loss') continue
+    const our = d.ourSide || 'blue'
+    const names = (d[our] && d[our].names) || [], picks = (d[our] && d[our].picks) || []
+    for (let i = 0; i < 5; i++) {
+      if (names[i] !== displayName || !picks[i]) continue
+      const id = NAME_ID[picks[i]]; if (!id) continue
+      const a = agg[id] = agg[id] || { championId: id, games: 0, wins: 0 }
+      a.games++; if (d.result === 'win') a.wins++
+    }
+  }
+  return Object.values(agg).map(a => ({ ...a, winRate: a.games ? Math.round(a.wins / a.games * 100) : 0 }))
+    .sort((x, y) => y.games - x.games)
+}
+// The pool to DISPLAY for a roster player given the current view toggle.
+function displayPool(p) {
+  return poolView === 'drafttool' ? draftToolPool(p.display || p.name) : p.pool
+}
+function setPoolView(v) {
+  poolView = v
+  document.getElementById('pv-opgg').classList.toggle('active', v === 'opgg')
+  document.getElementById('pv-draft').classList.toggle('active', v === 'drafttool')
+  renderRoster()
+}
+window.setPoolView = setPoolView
 const roster = KQF_ROSTER.map(p => ({
   ...p,
   role: p.defaultRole,
@@ -1373,8 +1411,9 @@ function renderRoster() {
 
     const cardClass = `player-card ${isActive?'active-player':''} ${isSub?'sub-card':''} ${!isActive?'out':''}`
 
-    // Pool icons (top 10)
-    const topPool = p.pool.slice(0, 10)
+    // Pool icons (top 10) — source depends on the Pool view toggle (OP.GG vs Draft Tool)
+    const viewPool = displayPool(p)
+    const topPool = viewPool.slice(0, 10)
     const poolIcons = topPool.map(entry => {
       const c = CHAMPS[entry.championId]
       if (!c) return ''
@@ -1384,6 +1423,7 @@ function renderRoster() {
         <div class="pool-wr${wrClass}">${entry.winRate}%</div>
       </div>`
     }).join('')
+    const emptyDraftView = poolView === 'drafttool' && !topPool.length
 
     // Is the pool showing baseline (seed) data rather than a live OP.GG fetch?
     const isSeed = p.pool.length && p.pool.every(e => e.seeded)
@@ -1413,11 +1453,13 @@ function renderRoster() {
         <a class="opgg-link" href="${opggHref}" target="_blank" title="Open OP.GG">↗</a>
       </div>
       ${topPool.length ? `<div class="pc-pool">${poolIcons}</div>` : ''}
-      ${p.poolError && !p.pool.length
-        ? `<div style="color:var(--red);font-size:9px;margin-top:3px" title="${p.poolError}">⚠ ${p.poolError.slice(0,30)}</div>`
-        : isSeed
-          ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px" title="Showing baseline pool. Click ↺ to pull live OP.GG data.">baseline · ↺ for live</div>`
-          : ''}
+      ${emptyDraftView
+        ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px">no saved games yet</div>`
+        : p.poolError && !p.pool.length
+          ? `<div style="color:var(--red);font-size:9px;margin-top:3px" title="${p.poolError}">⚠ ${p.poolError.slice(0,30)}</div>`
+          : isSeed
+            ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px" title="Showing baseline pool. Click ↺ to pull live OP.GG data.">baseline · ↺ for live</div>`
+            : ''}
     </div>`
   }).join('')
 }
