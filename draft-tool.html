@@ -1973,6 +1973,23 @@ function rosterPairBoost(champId, allyPicks) {
   }
   return n ? Math.max(-0.08, Math.min(0.14, boost)) : 0
 }
+// How much to trust our 5-man games in flex/ranked5 (grows with sample size →
+// suggestions get more tailored to the roster the more we play). 0 in solo.
+function rosterTrust() {
+  if (mainTab !== 'flex' && mainTab !== 'ranked5') return 0
+  const b = rosterBucket(false)
+  const g = (b && b.record && b.record.games) || 0
+  return Math.min(1, g / 16)               // ~16 full-roster games → full trust
+}
+// A player's go-to champ in our 5-man games (most-played, ≥2 games) — what bans
+// should protect. null if no roster games for them in the current mode.
+function rosterComfort(playerKey) {
+  const b = rosterBucket(false)
+  const pool = b && b.pools && b.pools[playerKey]
+  if (!pool || !pool.length) return null
+  const top = [...pool].sort((a, z) => (z.games - a.games) || (z.winRate - a.winRate))[0]
+  return top && top.games >= 2 ? top : null
+}
 // The most decisive pair record (with a locked ally) for the pick reason, or ''.
 function rosterPairNote(champId, allyPicks) {
   const st = rosterGameStats(); if (!st) return ''
@@ -2620,6 +2637,10 @@ function getSuggestions() {
   const W = isOurs
     ? { fam:0.20, meta:0.15, pro:0.08, synBase:0.10 }
     : { fam:0.00, meta:0.28, pro:0.20, synBase:0.04 }
+  // TAILOR flex/ranked5 to our 5-man games: the more games we have, the more our
+  // real roster comfort + duo synergy drive picks (vs generic solo-queue meta).
+  const rTrust = rosterTrust()
+  if (isOurs && rTrust) { W.fam = 0.20 + 0.12 * rTrust; W.synBase = 0.10 + 0.04 * rTrust }
 
   // Draftability context: can the OPPONENT still answer a lane we pick now? If they
   // have picks left and the role open, our pick is EXPOSED to a counter — so favor
@@ -2635,8 +2656,9 @@ function getSuggestions() {
     const proSc   = proScore(c.id)
     const comp    = compNeed(c, pAlly)
     const histBonus = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? historyBoost(c.id) : 0
-    // Real roster games: reward champs that win alongside our locked allies.
-    const rgPair = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? rosterPairBoost(c.id, pAlly) : 0
+    // Real roster games: reward champs that win alongside our locked allies
+    // (influence grows with our game count via rTrust).
+    const rgPair = (isOurs && rTrust) ? rosterPairBoost(c.id, pAlly) * (0.5 + 0.5 * rTrust) : 0
 
     // PICKS — champ must be able to fill one of the OPEN roles; score it in its
     // strongest open role (so it competes across every role still needed).
@@ -2655,9 +2677,14 @@ function getSuggestions() {
       // a support's pool can't recommend a champ for mid. Dropped for enemy preds.
       const fam = isOurs ? bestFamiliarity(c.id, role) : { score: 0, player: null, entry: null }
       const famScore = fam.score, player = fam.player, entry = fam.entry
+      // 5-man COMFORT FACTOR — a champ a roster player wins on in our real games can be
+      // played through a soft lane counter (comfort > counters per our draft philosophy).
+      // Softens the counter/lane penalties below and adds a small floor.
+      const comfortF = (entry && entry.source === 'roster' && entry.rosterGames >= 3 && entry.winRate >= 60) ? 1
+                     : (entry && entry.source === 'roster' && entry.rosterGames >= 2 && entry.winRate >= 55) ? 0.5 : 0
       // Role-pair synergy (bot duo / jungle-support / jungle-mid) with our locked picks.
       const syn = rolePairSynergy(c.id, role, allyByRole).score
-      const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy).length * 0.08)
+      const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy).length * 0.08) * (1 - 0.5 * comfortF)
 
       // #1 LANE MATCHUP — the single biggest factor once the lane opponent is known.
       const laneOpp = laneOpponent(role, enemySide)
@@ -2695,9 +2722,11 @@ function getSuggestions() {
       // Laning strength (itero gold@14 / general lane outlook) — light weight.
       const laneStr = laneOutlook(c.id, role).strength
       const proPk = proPickScore(c.id)
+      // Comfort softens a losing-lane reading (they can play through it).
+      const laneStrEff = laneStr < 0 ? laneStr * (1 - 0.5 * comfortF) : laneStr
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStr * 0.06 + timingFit + timing + histBonus + rgPair - cByPen - offRolePen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + comfortF * 0.03 - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
@@ -2733,8 +2762,10 @@ function getSuggestions() {
     if (ourPicks.length <= 1) {
       for (const p of roster) {
         if (!p.active || p.role === 'sub') continue
-        const fav = (p.pool || [])[0]   // their most-played champ
-        if (fav && beatsInLane(c.id, fav.championId)) { punishesComfort = 0.16; comfortHit = CHAMPS[fav.championId]?.name; break }
+        // Prefer the champ this player actually plays/wins in our 5-man games; fall
+        // back to their op.gg most-played. Protect it from blind-pick punishers.
+        const fav = rosterComfort(p.name) || (p.pool || [])[0]
+        if (fav && beatsInLane(c.id, fav.championId)) { punishesComfort = rosterComfort(p.name) ? 0.18 : 0.16; comfortHit = CHAMPS[fav.championId]?.name; break }
       }
     }
     // Pro ban priority — flexible / high-impact champs teams refuse to leave open.
@@ -2948,7 +2979,12 @@ function renderSuggestions() {
     // When it's the enemy on the clock, the panel PREDICTS their pick (meta/pro
     // based, no roster), so label it clearly as opponent-side.
     const lead = sug.isOurs === false ? '🔮 Enemy likely' : 'Best picks'
-    html += `<div class="sug-role-hdr">${lead} · <b>${label}</b> · patch ${PATCH}</div>`
+    let tune = ''
+    if (sug.isOurs !== false && rosterTrust() > 0) {
+      const b = rosterBucket(false), r = b && b.record
+      if (r && r.games) tune = ` · <span style="color:var(--green)">tuned to your 5-stack (${r.wins}-${r.games - r.wins})</span>`
+    }
+    html += `<div class="sug-role-hdr">${lead} · <b>${label}</b> · patch ${PATCH}${tune}</div>`
   }
   items.forEach((s,i) => {
     const c = CHAMPS[s.id]; if(!c) return
