@@ -26,6 +26,10 @@ body{background:var(--dark);color:var(--gold-l);font-family:'Segoe UI',system-ui
 .main-tab.active{background:var(--dark2);color:var(--gold);box-shadow:0 0 0 1px var(--gold-d)}
 
 .hdr-actions{display:flex;align-items:center;gap:8px}
+#live-status{font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 9px;border-radius:12px;border:1px solid var(--gold-d);color:var(--gray-l);white-space:nowrap}
+#live-status.on{border-color:var(--green);color:var(--green);background:#2ECC7112}
+#live-status.armed{border-color:var(--red);color:#fff;background:var(--red);animation:livepulse 1.2s infinite}
+@keyframes livepulse{50%{opacity:.55}}
 .phase-badge{padding:4px 12px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1px;border:1px solid;white-space:nowrap}
 .phase-badge.ban{border-color:var(--red);color:var(--red);background:#C84B3115}
 .phase-badge.pick{border-color:var(--blue);color:var(--blue);background:#0BC4E315}
@@ -345,6 +349,7 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
     <div class="main-tab" onclick="switchMainTab('ranked5')">Ranked 5's</div>
   </div>
   <div class="hdr-actions">
+    <span id="live-status" class="hidden" title="Live champ-select sync via the local companion"></span>
     <span id="phase-badge" class="phase-badge ban">BAN PHASE 1</span>
     <span id="turn-lbl" style="color:var(--gray);font-size:10px;min-width:100px;display:flex;align-items:center;gap:6px"></span>
     <button id="history-btn" class="btn hidden" style="font-size:10px;padding:3px 10px" onclick="openHistory()">📋 History</button>
@@ -1189,6 +1194,54 @@ function dismissRiotKey() {
 window.openRiotKeyModal = openRiotKeyModal
 window.saveRiotKey = saveRiotKey
 window.dismissRiotKey = dismissRiotKey
+
+// ── Live champ-select sync (only when served by the local companion app) ─────
+let _liveTimer = null
+function setLiveStatus(txt, cls) {
+  const el = document.getElementById('live-status'); if (!el) return
+  el.className = cls || ''; el.textContent = txt
+}
+function applyLiveDraft(s) {
+  if (!s.active) return
+  if (mainTab === 'solo') switchMainTab('flex')        // a live draft is a team draft
+  if (s.ourSide && s.ourSide !== mySide) { mySide = s.ourSide; syncSideButtons() }
+  for (const side of ['blue', 'red']) {
+    DS[side].picks = [null, null, null, null, null]
+    DS[side].bans = [null, null, null, null, null]
+    const t = s.teams && s.teams[side]; if (!t) continue
+    ;(t.bans || []).slice(0, 5).forEach((id, i) => { DS[side].bans[i] = id || null })
+    let seq = 0
+    for (const p of (t.picks || [])) {
+      if (!p.championId) continue
+      let slot
+      if (p.role && ALL_ROLES.includes(p.role)) slot = ALL_ROLES.indexOf(p.role)
+      else { while (seq < 5 && DS[side].picks[seq]) seq++; slot = seq++ }
+      if (slot >= 0 && slot < 5 && !DS[side].picks[slot]) DS[side].picks[slot] = p.championId
+    }
+  }
+  DS.step = getActiveDraftOrder().length
+  render(); filterGrid()
+}
+async function pollLive() {
+  try {
+    const r = await fetch('/api/lcu', { cache: 'no-store' }); if (!r.ok) throw 0
+    const s = await r.json()
+    if (s.active) { applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.phase || 'champ select'), 'armed') }
+    else setLiveStatus('live ready · ' + (s.reason || 'waiting'), 'on')
+  } catch {
+    if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null }
+    const el = document.getElementById('live-status'); if (el) el.className = 'hidden'
+  }
+}
+function startLive() {
+  // The companion exposes /api/lcu; the static github.io site doesn't → stays manual.
+  fetch('/api/lcu', { cache: 'no-store' }).then(r => {
+    if (!r.ok) return
+    setLiveStatus('live ready', 'on')
+    _liveTimer = setInterval(pollLive, 1500); pollLive()
+  }).catch(() => { /* no companion — normal manual mode */ })
+}
+window.startLive = startLive
 // A player's record across full-roster games (current mode) — from Riot match
 // history. nameKey = lowercase roster key. Counts only games they were in (so a
 // subbed LP Fisherman only shows the games he actually played).
@@ -1276,6 +1329,8 @@ async function init() {
   autoLoadPools()
   // Remind to refresh the Riot key if the roster data is stale (key expires ~24h)
   checkRosterFreshness()
+  // If we're served by the local companion, sync live champ select.
+  startLive()
 }
 
 async function autoLoadPools() {
