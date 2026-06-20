@@ -1,12 +1,13 @@
-// Pulls the KQF roster's REAL games-together from the Riot API and writes
-// roster-data.js (window.ROSTER_DATA) — per-player champ pools + W/L from games
-// where 2+ roster members were on the same team. The API key is read from the
-// RIOT_KEY env var and is NEVER written to disk/output.
+// Pulls the KQF roster's FULL-STACK games (5 roster members on one team) from the
+// Riot API and writes roster-data.js (window.ROSTER_DATA), bucketed BY GAME MODE
+// (Flex vs Ranked 5's vs other), so each mode's history is separate. Only counts
+// games where the roster is present and FULL (any 5 of the 6 members — LP Fisherman
+// may sub in for a main). The API key (RIOT_KEY env var) is NEVER written to disk.
 //
 //   RIOT_KEY=RGAPI-xxxx node scripts/refresh-roster.js
 //
-// Riot dev keys expire ~24h, so re-run with a fresh key to update. (Can't run in
-// the daily GitHub Action — no persistent key — so this is a manual/local refresh.)
+// Dev keys expire ~24h → manual re-run to update (the static site/daily Action can't
+// hold a key). Re-run after games to keep suggestions learning.
 
 const fs = require('fs');
 const path = require('path');
@@ -23,8 +24,11 @@ const ROSTER = [
   { key: 'yoitssam', name: 'YoitsSam', tag: 'NA1' },
   { key: 'lp fisherman', name: 'LP Fisherman', tag: 'NA1' },
 ];
+const FULL_ROSTER = 5;          // a team must have this many roster members to count
+const FLEX_QUEUE = 440;         // Ranked Flex
+const RANKED5_QUEUE = null;     // TODO: set to the Ranked 5's queueId once it launches (Jun 26)
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const GAP = 800;   // stay under dev-key 100 req / 2 min
+const GAP = 800;
 
 async function getJSON(url) {
   for (let i = 0; i < 3; i++) {
@@ -35,9 +39,9 @@ async function getJSON(url) {
   }
   return null;
 }
+function modeFor(q) { return q === FLEX_QUEUE ? 'flex' : q === RANKED5_QUEUE ? 'ranked5' : 'other'; }
 
 async function main() {
-  // 1) resolve puuids
   const puuidToKey = {};
   for (const p of ROSTER) {
     const a = await getJSON(`https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(p.name)}/${encodeURIComponent(p.tag)}`);
@@ -46,51 +50,67 @@ async function main() {
   }
   console.log('resolved', Object.keys(puuidToKey).length, '/', ROSTER.length, 'puuids');
 
-  // 2) each player's recent match ids → count how many roster members share each
   const matchCount = {};
   for (const puuid of Object.keys(puuidToKey)) {
-    const ids = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids?count=30&type=ranked`);
+    const ids = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids?count=40`);
     for (const id of (ids || [])) matchCount[id] = (matchCount[id] || 0) + 1;
     await sleep(GAP);
   }
-  // a match in >=2 roster members' lists = a roster-together game
-  const rosterMatchIds = Object.keys(matchCount).filter(id => matchCount[id] >= 2);
-  console.log('candidate roster games:', rosterMatchIds.length);
+  // a match shared by >=FULL_ROSTER players' lists is a strong full-stack candidate
+  const candidates = Object.keys(matchCount).filter(id => matchCount[id] >= FULL_ROSTER);
+  console.log('full-stack candidates:', candidates.length);
 
-  // 3) fetch each roster game; record each roster member's champ + win
-  const pools = {};       // key -> { championId: {games,wins} }
-  let recGames = 0, recWins = 0;
-  for (const id of rosterMatchIds) {
+  // bucket builder: mode -> { record:{games,wins}, pools:{key:{champId:{games,wins}}} }
+  const buckets = {};
+  const bucket = m => (buckets[m] = buckets[m] || { record: { games: 0, wins: 0 }, pools: {} });
+  for (const id of candidates) {
     const md = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/${id}`);
     await sleep(GAP);
     if (!md || !md.info) continue;
     const ps = md.info.participants;
-    // group roster members by team
     const byTeam = {};
     for (const p of ps) { const k = puuidToKey[p.puuid]; if (k) (byTeam[p.teamId] = byTeam[p.teamId] || []).push(p); }
-    // the team with 2+ roster members is "our" team this game
-    const team = Object.values(byTeam).find(arr => arr.length >= 2);
+    const team = Object.values(byTeam).find(arr => arr.length >= FULL_ROSTER);   // FULL roster on one team
     if (!team) continue;
+    const mode = modeFor(md.info.queueId);
+    const b = bucket(mode);
     const won = team[0].win;
-    recGames++; if (won) recWins++;
+    b.record.games++; if (won) b.record.wins++;
     for (const p of team) {
       const k = puuidToKey[p.puuid];
-      const pool = pools[k] = pools[k] || {};
+      const pool = b.pools[k] = b.pools[k] || {};
       const c = pool[p.championId] = pool[p.championId] || { championId: p.championId, games: 0, wins: 0 };
       c.games++; if (p.win) c.wins++;
     }
   }
 
-  // shape pools as sorted arrays with win rate
-  const outPools = {};
-  for (const k in pools) {
-    outPools[k] = Object.values(pools[k])
-      .map(c => ({ ...c, winRate: c.games ? Math.round(c.wins / c.games * 100) : 0 }))
-      .sort((a, b) => b.games - a.games);
+  // shape: each mode + an "all" combined bucket
+  const shape = b => ({
+    record: b.record,
+    pools: Object.fromEntries(Object.entries(b.pools).map(([k, m]) =>
+      [k, Object.values(m).map(c => ({ ...c, winRate: c.games ? Math.round(c.wins / c.games * 100) : 0 })).sort((a, z) => z.games - a.games)])),
+  });
+  const all = bucket('_all_'); // build combined
+  for (const m of Object.keys(buckets)) {
+    if (m === '_all_') continue;
+    const b = buckets[m]; all.record.games += b.record.games; all.record.wins += b.record.wins;
+    for (const k in b.pools) for (const cid in b.pools[k]) {
+      const src = b.pools[k][cid];
+      const pool = all.pools[k] = all.pools[k] || {};
+      const c = pool[cid] = pool[cid] || { championId: src.championId, games: 0, wins: 0 };
+      c.games += src.games; c.wins += src.wins;
+    }
   }
-  const payload = { generated: new Date().toISOString(), record: { games: recGames, wins: recWins }, pools: outPools };
+  const payload = {
+    generated: new Date().toISOString(),
+    flex: shape(bucket('flex')),
+    ranked5: shape(bucket('ranked5')),
+    other: shape(bucket('other')),
+    all: shape(all),
+  };
   fs.writeFileSync(OUT, 'window.ROSTER_DATA = ' + JSON.stringify(payload) + ';\n');
-  console.log(`roster games: ${recGames} (${recWins}W). players with pools: ${Object.keys(outPools).length}`);
+  for (const m of ['flex', 'ranked5', 'other', 'all'])
+    console.log(`${m}: ${payload[m].record.wins}W-${payload[m].record.games - payload[m].record.wins}L of ${payload[m].record.games}`);
   console.log('wrote', OUT);
 }
 main().catch(e => { console.error('FATAL', e.message); process.exit(1); });

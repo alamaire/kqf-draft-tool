@@ -151,6 +151,19 @@ body{background:var(--dark);color:var(--gold-l);font-family:'Segoe UI',system-ui
 .best-badge{font-size:8px;font-weight:700;letter-spacing:1px;color:#021;background:var(--green);padding:1px 6px;border-radius:8px;margin-left:6px}
 /* ── HISTORY MODAL ── */
 #history-modal{position:fixed;inset:0;background:#000000CC;z-index:999;display:flex;align-items:center;justify-content:center}
+#riot-key-modal{position:fixed;inset:0;background:#000000CC;z-index:1000;display:flex;align-items:center;justify-content:center}
+.rk-box{background:var(--dark2);border:1px solid var(--gold);border-radius:8px;width:440px;max-width:92vw;padding:18px;display:flex;flex-direction:column;gap:10px}
+.rk-title{color:var(--gold);font-weight:800;font-size:15px;letter-spacing:1px}
+.rk-body{color:var(--gold-l);font-size:12px;line-height:1.5}
+.rk-link{display:block;text-align:center;padding:9px;border:1px solid var(--blue);border-radius:5px;color:var(--blue);text-decoration:none;font-weight:700;font-size:12px}
+.rk-link:hover{background:var(--blue);color:#fff}
+.rk-row{display:flex;gap:6px}
+.rk-input{flex:1;background:var(--dark);border:1px solid var(--gold-d);color:var(--gold-l);border-radius:5px;padding:7px 9px;font-size:11px;outline:none}
+.rk-input:focus{border-color:var(--blue)}
+.rk-save{padding:7px 14px;border:1px solid var(--green);background:transparent;color:var(--green);border-radius:5px;cursor:pointer;font-weight:700;font-size:11px}
+.rk-save:hover{background:var(--green);color:var(--dark)}
+.rk-note{color:var(--gray-l);font-size:10px;line-height:1.4}
+.rk-dismiss{align-self:flex-end;padding:5px 12px;border:1px solid var(--gray);background:transparent;color:var(--gray-l);border-radius:4px;cursor:pointer;font-size:11px}
 .hist-box{background:var(--dark2);border:1px solid var(--gold-d);border-radius:8px;width:560px;max-width:95vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden}
 .hist-box-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--gold-d)}
 .hist-box-hdr h3{color:var(--gold);font-size:13px;letter-spacing:2px}
@@ -1129,7 +1142,13 @@ function draftToolPool(displayName) {
 }
 // The pool to DISPLAY for a roster player given the current view toggle.
 function displayPool(p) {
-  return poolView === 'drafttool' ? draftToolPool(p.display || p.name) : p.pool
+  // Draft Tool view = the roster's REAL full-stack match history for the current
+  // mode (Flex vs Ranked 5's), from Riot. Strictly mode-specific (empty if none yet).
+  if (poolView === 'drafttool') {
+    const b = rosterBucket(true)
+    return (b && b.pools && b.pools[p.name]) ? b.pools[p.name] : []
+  }
+  return p.pool
 }
 function setPoolView(v) {
   poolView = v
@@ -1139,24 +1158,52 @@ function setPoolView(v) {
   renderRoster()
 }
 window.setPoolView = setPoolView
-// A player's win/loss record across our SAVED roster games (website match history).
-function playerRecord(displayName) {
+// ── Riot key refresh reminder ───────────────────────────────────────────────
+function rosterDataAgeHours() {
+  const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
+  return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
+}
+function openRiotKeyModal() {
+  const age = rosterDataAgeHours()
+  const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
+  const body = document.getElementById('rk-body')
+  if (body) body.textContent = `Your Riot dev key expires every 24h. The roster match-history ${ageTxt}, so it needs a fresh pull to keep learning from new games.`
+  document.getElementById('riot-key-modal').classList.remove('hidden')
+}
+// Show once per day when the roster data is stale (key likely expired).
+function checkRosterFreshness() {
+  let dismissed = null; try { dismissed = localStorage.getItem('rk_dismissed') } catch {}
+  if (rosterDataAgeHours() >= 20 && dismissed !== new Date().toDateString()) openRiotKeyModal()
+}
+function saveRiotKey() {
+  const v = document.getElementById('rk-input').value.trim()
+  const note = document.getElementById('rk-note')
+  if (!/^RGAPI-/.test(v)) { note.textContent = "That doesn't look like an RGAPI-… key."; return }
+  try { localStorage.setItem('riot_key', v) } catch {}
+  note.textContent = '✓ Saved in your browser. Hand it to the refresh helper to update the roster data.'
+}
+function dismissRiotKey() {
+  try { localStorage.setItem('rk_dismissed', new Date().toDateString()) } catch {}
+  document.getElementById('riot-key-modal').classList.add('hidden')
+}
+window.openRiotKeyModal = openRiotKeyModal
+window.saveRiotKey = saveRiotKey
+window.dismissRiotKey = dismissRiotKey
+// A player's record across full-roster games (current mode) — from Riot match
+// history. nameKey = lowercase roster key. Counts only games they were in (so a
+// subbed LP Fisherman only shows the games he actually played).
+function playerRecord(nameKey) {
+  const b = rosterBucket(true)
+  if (!b || !b.pools || !b.pools[nameKey]) return { games: 0, wins: 0, losses: 0, wr: 0 }
   let games = 0, wins = 0
-  for (const d of historyLoad()) {
-    if (d.result !== 'win' && d.result !== 'loss') continue
-    const our = d.ourSide || 'blue'
-    const names = (d[our] && d[our].names) || []
-    if (names.includes(displayName)) { games++; if (d.result === 'win') wins++ }
-  }
+  for (const c of b.pools[nameKey]) { games += c.games; wins += c.wins }
   return { games, wins, losses: games - wins, wr: games ? Math.round(wins / games * 100) : 0 }
 }
-// Overall team record across saved games.
+// Overall team record across full-roster games for the current mode.
 function teamRecord() {
-  let games = 0, wins = 0
-  for (const d of historyLoad()) {
-    if (d.result === 'win') { games++; wins++ } else if (d.result === 'loss') games++
-  }
-  return { games, wins, losses: games - wins, wr: games ? Math.round(wins / games * 100) : 0 }
+  const b = rosterBucket(true)
+  const r = b && b.record ? b.record : { games: 0, wins: 0 }
+  return { games: r.games, wins: r.wins, losses: r.games - r.wins, wr: r.games ? Math.round(r.wins / r.games * 100) : 0 }
 }
 const roster = KQF_ROSTER.map(p => ({
   ...p,
@@ -1227,6 +1274,8 @@ async function init() {
   switchMainTab('solo')
   // Silently auto-fetch any player without pool data
   autoLoadPools()
+  // Remind to refresh the Riot key if the roster data is stale (key expires ~24h)
+  checkRosterFreshness()
 }
 
 async function autoLoadPools() {
@@ -1497,7 +1546,7 @@ function renderRoster() {
       </div>
       ${topPool.length ? `<div class="pc-pool">${poolIcons}</div>` : ''}
       ${emptyDraftView
-        ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px">no saved games yet</div>`
+        ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px">no full-roster ${mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'} games yet</div>`
         : p.poolError && !p.pool.length
           ? `<div style="color:var(--red);font-size:9px;margin-top:3px" title="${p.poolError}">⚠ ${p.poolError.slice(0,30)}</div>`
           : isSeed
@@ -1507,13 +1556,16 @@ function renderRoster() {
   }).join('')
 }
 
-// Tracker view — team + per-player games/win-rate from our saved roster games.
+// Tracker view — team + per-player games/win-rate from full-roster Riot games,
+// for the CURRENT mode (Flex vs Ranked 5's).
 function renderTracker(el) {
   const tr = teamRecord()
+  const b = rosterBucket(true)
+  const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const wrCls = w => w >= 50 ? 'good' : 'bad'
   const cards = roster.map(p => {
-    const rec = playerRecord(p.display || p.name)
-    const pool = draftToolPool(p.display || p.name)
+    const rec = playerRecord(p.name)
+    const pool = (b && b.pools && b.pools[p.name]) || []
     const top = pool[0] ? `${CHAMPS[pool[0].championId]?.name} ${pool[0].wins}-${pool[0].games - pool[0].wins}` : '—'
     return `<div class="track-card ${p.active ? '' : 'out'}">
       <div class="track-name" title="${p.display || p.name}">${p.display || p.name}</div>
@@ -1524,13 +1576,13 @@ function renderTracker(el) {
   }).join('')
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
-      <span class="track-team-lbl">TEAM RECORD</span>
+      <span class="track-team-lbl">TEAM RECORD · ${modeLbl}</span>
       <span class="track-team-rec">${tr.wins}-${tr.losses}</span>
       <span class="track-team-wr ${wrCls(tr.wr)}">${tr.games ? tr.wr + '%' : '—'}</span>
-      <span class="track-team-n">${tr.games} saved game${tr.games !== 1 ? 's' : ''}</span>
+      <span class="track-team-n">${tr.games} full-roster game${tr.games !== 1 ? 's' : ''}</span>
     </div>
     <div class="track-cards">${cards}</div>
-    ${tr.games ? '' : '<div class="empty-msg">No saved games yet — finish a Ranked 5\'s draft, hit Save Draft, and mark Win/Loss to start tracking.</div>'}
+    ${tr.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet${mainTab === 'ranked5' ? " — Ranked 5's launches Jun 26" : ''}. Play a full 5-stack, then refresh the Riot data.</div>`}
   </div>`
 }
 
@@ -1797,11 +1849,20 @@ function getUsedIds() {
 // Signal 1: OP.GG pool familiarity. ROLE-SCOPED — only the player who actually
 // plays that role contributes mastery (a support's high WR on a champ must NOT
 // recommend that champ for mid). Pass no role to consider all active players.
-// A player's record on a champ in REAL roster games-together (Riot data), or null.
+// Which roster-data bucket applies to the current mode (Ranked 5's vs Flex), with
+// a fallback to the combined "all" bucket so suggestions still benefit pre-launch.
+function rosterBucket(strict) {
+  const rd = window.ROSTER_DATA; if (!rd) return null
+  const mode = mainTab === 'ranked5' ? 'ranked5' : 'flex'
+  if (rd[mode] && rd[mode].record && rd[mode].record.games) return rd[mode]
+  if (strict) return rd[mode] || null            // display: stay mode-specific (may be empty)
+  return rd.all && rd.all.record.games ? rd.all : (rd[mode] || null)
+}
+// A player's record on a champ in REAL roster games-together (Riot), or null.
 function rosterGameEntry(playerKey, champId) {
-  const pools = window.ROSTER_DATA && window.ROSTER_DATA.pools
-  if (!pools || !pools[playerKey]) return null
-  return pools[playerKey].find(e => e.championId === champId) || null
+  const b = rosterBucket(false)
+  if (!b || !b.pools || !b.pools[playerKey]) return null
+  return b.pools[playerKey].find(e => e.championId === champId) || null
 }
 // Roster familiarity (role-scoped). LEANS ON the roster's real games-together
 // (ROSTER_DATA) over solo-queue (op.gg): team games reach confidence faster, get a
@@ -3170,6 +3231,22 @@ init()
     <div id="history-view-panel" class="hist-content hidden">
       <div id="history-list"></div>
     </div>
+  </div>
+</div>
+
+<!-- RIOT KEY REFRESH POPUP — shown when roster match-history data is stale (dev key
+     expires every 24h). Links to the page to grab a fresh key. -->
+<div id="riot-key-modal" class="hidden">
+  <div class="rk-box">
+    <div class="rk-title">⚠ Roster data needs a refresh</div>
+    <div class="rk-body" id="rk-body">Your Riot dev key expires every 24 hours, so the roster match-history needs a fresh pull.</div>
+    <a class="rk-link" href="https://developer.riotgames.com/" target="_blank" rel="noopener">🔑 Get a fresh key → developer.riotgames.com</a>
+    <div class="rk-row">
+      <input id="rk-input" class="rk-input" placeholder="Paste fresh RGAPI-… key here" />
+      <button class="rk-save" onclick="saveRiotKey()">Save</button>
+    </div>
+    <div class="rk-note" id="rk-note">Saved here only (your browser) — give it to the refresh helper to update the roster data.</div>
+    <button class="rk-dismiss" onclick="dismissRiotKey()">Dismiss</button>
   </div>
 </div>
 </body>
