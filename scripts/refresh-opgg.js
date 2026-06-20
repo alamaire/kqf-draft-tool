@@ -31,6 +31,34 @@ async function getText(url) {
   return null;
 }
 
+// KQF roster — used to pull each player's champion pool from ranked match history.
+const ROSTER = [
+  { key: 'thedrunkofrivia', name: 'TheDrunkOfRivia', tag: 'NA1' },
+  { key: 'teemoboy2011', name: 'Teemoboy2011', tag: 'Smile' },
+  { key: 'styiebender', name: 'StyIebender', tag: 'NA1' },
+  { key: 'monkeydadam', name: 'MonkeyDAdam', tag: 'NA1' },
+  { key: 'yoitssam', name: 'YoitsSam', tag: 'NA1' },
+  { key: 'lp fisherman', name: 'LP Fisherman', tag: 'NA1' },
+];
+// Parse a player's champion pool (ranked match history) off their op.gg page. Each
+// pool champion object is followed by "match_up_stats"; take the {id,play,win,..}
+// that opens it. {championId, games, wins, winRate}, sorted by games.
+function parsePool(html) {
+  const u = html.replace(/\\"/g, '"');
+  const out = [], seen = new Set();
+  const re = /"match_up_stats":/g; let m;
+  while ((m = re.exec(u))) {
+    const head = u.slice(Math.max(0, m.index - 800), m.index);
+    const hm = [...head.matchAll(/\{"id":(\d+),"play":(\d+),"win":(\d+),"lose":(\d+),"win_rate":([\d.]+)/g)];
+    if (!hm.length) continue;
+    const x = hm[hm.length - 1], id = +x[1];
+    if (id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ championId: id, games: +x[2], wins: +x[3], winRate: Math.round(+x[5]) });
+  }
+  return out.sort((a, b) => b.games - a.games);
+}
+
 // Unescape RSC chunk JSON: decode \uXXXX (e.g. & -> &) AND \" -> ", so champ
 // names like "Nunu & Willump" come through correctly.
 const unescapeJson = (s) => s
@@ -128,7 +156,16 @@ async function main() {
     console.log(`itero (DIAMOND): ${Object.keys(itero).length} champs`);
   } catch (e) { console.log('itero pull failed:', e.message); }
 
-  const payload = { v: ver, generated: new Date().toISOString(), counters, synergy, stats, itero };
+  // ── Per-player champion pools from ranked MATCH HISTORY (op.gg summoner pages) ─
+  const pools = {};
+  for (const p of ROSTER) {
+    const url = `https://op.gg/summoners/na/${encodeURIComponent(p.name)}-${encodeURIComponent(p.tag)}/champions`;
+    const h = await getText(url);
+    if (h) { const pool = parsePool(h); if (pool.length) pools[p.key] = pool; }
+  }
+  console.log(`roster pools: ${Object.keys(pools).map(k => k + ':' + pools[k].length).join(', ')}`);
+
+  const payload = { v: ver, generated: new Date().toISOString(), counters, synergy, stats, itero, pools };
   fs.writeFileSync(OUT, 'window.OPGG_DATA = ' + JSON.stringify(payload) + ';\n');
   console.log(`Done. counters:${okC} synergy:${okS} stats:${Object.keys(stats).length} champs. Failed slugs: ${fail.join(', ') || 'none'}`);
   console.log(`Wrote ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);

@@ -1074,12 +1074,18 @@ function getActiveDraftOrder() {
 // Roster state — one entry per KQF member
 // role: currently assigned role (can change from default)
 // active: whether they're playing this game (flex toggle)
+// Each player's pool comes from their ranked MATCH HISTORY (op.gg), pulled
+// server-side into champ-data.js and refreshed daily. Seed is only a last resort.
+function matchHistoryPool(name) {
+  const live = window.OPGG_DATA && window.OPGG_DATA.pools && window.OPGG_DATA.pools[name.toLowerCase()]
+  return (live && live.length) ? live.map(e => ({ ...e })) : seedPoolFor(name)
+}
 const roster = KQF_ROSTER.map(p => ({
   ...p,
   role: p.defaultRole,
   active: !p.isSub,
   opggTag: p.opggTag,
-  pool: seedPoolFor(p.name),   // baseline; replaced by live OP.GG data when available
+  pool: matchHistoryPool(p.name),
   poolLoading: false,
   poolError: null,
 }))
@@ -1146,13 +1152,11 @@ async function init() {
 }
 
 async function autoLoadPools() {
+  // Pools are baked from match history (champ-data.js, refreshed daily). Only fall
+  // back to the live client fetch for a player who has NO baked data at all (the
+  // proxy is unreliable, so we don't spam it when we already have real pools).
   for (let i = 0; i < roster.length; i++) {
-    // Refresh anyone who only has seed/baseline data (or nothing) — live data
-    // replaces the seed on success; on failure the seed stays visible.
-    const onlySeed = !roster[i].pool.length || roster[i].pool.every(e => e.seeded)
-    if (onlySeed && !roster[i].poolLoading) {
-      await loadPlayerPool(i)
-    }
+    if (!roster[i].pool.length && !roster[i].poolLoading) await loadPlayerPool(i)
   }
 }
 
