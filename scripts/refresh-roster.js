@@ -63,6 +63,7 @@ async function main() {
   // bucket builder: mode -> { record:{games,wins}, pools:{key:{champId:{games,wins}}} }
   const buckets = {};
   const bucket = m => (buckets[m] = buckets[m] || { record: { games: 0, wins: 0 }, pools: {} });
+  const queueTally = {};   // queueId -> # of full-roster games (so a new mode self-identifies)
   for (const id of candidates) {
     const md = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/${id}`);
     await sleep(GAP);
@@ -72,6 +73,7 @@ async function main() {
     for (const p of ps) { const k = puuidToKey[p.puuid]; if (k) (byTeam[p.teamId] = byTeam[p.teamId] || []).push(p); }
     const team = Object.values(byTeam).find(arr => arr.length >= FULL_ROSTER);   // FULL roster on one team
     if (!team) continue;
+    queueTally[md.info.queueId] = (queueTally[md.info.queueId] || 0) + 1;
     const mode = modeFor(md.info.queueId);
     const b = bucket(mode);
     const won = team[0].win;
@@ -117,6 +119,11 @@ async function main() {
   fs.writeFileSync(OUT, 'window.ROSTER_DATA = ' + JSON.stringify(payload) + ';\n');
   for (const m of ['flex', 'ranked5', 'other', 'all'])
     console.log(`${m}: ${payload[m].record.wins}W-${payload[m].record.games - payload[m].record.wins}L of ${payload[m].record.games}`);
+  // Full-roster games by queueId. 440=Flex. A NEW id here = the Ranked 5's mode →
+  // set RANKED5_QUEUE to it (top of this file) and re-run to split it from Flex.
+  const QNAMES = { 420: 'Solo/Duo', 440: 'Flex', 400: 'Normal Draft', 430: 'Normal Blind', 490: 'Quickplay', 700: 'Clash', 0: 'Custom' };
+  console.log('full-roster games by queueId:',
+    Object.entries(queueTally).map(([q, n]) => `${q}${QNAMES[q] ? '(' + QNAMES[q] + ')' : ' ⟵ NEW?'}=${n}`).join('  '));
   console.log('wrote', OUT);
 }
 main().catch(e => { console.error('FATAL', e.message); process.exit(1); });
