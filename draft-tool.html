@@ -1344,7 +1344,27 @@ function startLive() {
     if (modal && !modal.classList.contains('hidden')) openRiotKeyModal()   // refresh text now that companion is known
     setLiveStatus('live ready', 'on')
     _liveTimer = setInterval(pollLive, 1500); pollLive()
+    mergeLiveDrafts(); setInterval(mergeLiveDrafts, 30000)   // pull in auto-captured games
   }).catch(() => { /* no companion — normal manual mode */ })
+}
+// Merge the companion's auto-captured live drafts (full pick/ban order + result)
+// into our learning history, deduped by gameId. Makes the engine learn from every
+// real game with zero manual saving.
+async function mergeLiveDrafts() {
+  if (!_companionPresent) return
+  try {
+    const r = await fetch('/api/live-drafts', { cache: 'no-store' })
+    if (!r.ok) return
+    const caps = await r.json()
+    if (!Array.isArray(caps) || !caps.length) return
+    const have = new Set(historyLoad().map(d => d.gameId).filter(Boolean))
+    let added = 0
+    for (const d of caps.slice().reverse()) {   // oldest first so newest ends up on top
+      if (!d || (d.gameId && have.has(d.gameId))) continue
+      historySave(d); have.add(d.gameId); added++
+    }
+    if (added && typeof render === 'function') render()
+  } catch { /* companion went away — ignore */ }
 }
 window.startLive = startLive
 // A player's record across full-roster games (current mode) — from Riot match

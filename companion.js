@@ -61,6 +61,103 @@ async function champSelect() {
   } catch (e) { return { active: false, reason: String(e.message || e) }; }
 }
 
+// ── Live draft auto-capture ─────────────────────────────────────────────────
+// Watches the League client across champ select → game → result, and saves each
+// completed draft (full pick/ban ORDER, both teams, mode, W/L) to live-drafts.json
+// — which the tool merges into its learning history. Pick order is only available
+// live (Riot's post-game API omits it), so this is the only way to capture it.
+const DRAFTS_FILE = path.join(ROOT, 'live-drafts.json');
+const QUEUE_MODE = { 420: 'solo', 440: 'flex' /* , <ranked5 id>: 'ranked5' once known */ };
+const POS_ROLE = { top: 0, jungle: 1, mid: 2, adc: 3, support: 4 };
+let CHAMP_NAME = {};       // championId -> name (from Data Dragon, loaded at startup)
+let myPuuid = null;
+const watch = { pending: null, savedIds: new Set(), tries: 0 };
+
+function loadDrafts() { try { return JSON.parse(fs.readFileSync(DRAFTS_FILE, 'utf8')) || []; } catch { return []; } }
+function saveDraftEntry(entry) {
+  const all = loadDrafts();
+  if (all.some(d => d.gameId === entry.gameId)) return;
+  all.unshift(entry);
+  if (all.length > 200) all.length = 200;
+  fs.writeFileSync(DRAFTS_FILE, JSON.stringify(all, null, 2));
+  console.log(`✓ captured draft (game ${entry.gameId}, ${entry.mode}${entry.result ? ', ' + entry.result : ''})`);
+}
+async function loadChampNames() {
+  try {
+    const ver = (await (await fetch('https://ddragon.leagueoflegends.com/api/versions.json')).json())[0];
+    const data = (await (await fetch(`https://ddragon.leagueoflegends.com/cdn/${ver}/data/en_US/champion.json`)).json()).data;
+    for (const c of Object.values(data)) CHAMP_NAME[+c.key] = c.name;
+  } catch { /* names fill best-effort; ids still saved */ }
+}
+const nm = id => CHAMP_NAME[id] || null;
+
+// Build the saved-draft-shaped snapshot (names) from a champ-select session.
+function snapshotDraft(s) {
+  const myCells = (s.myTeam || []).map(c => c.cellId);
+  const weBlue = myCells.length ? myCells.every(c => c < 5) : true;
+  const ourSide = weBlue ? 'blue' : 'red';
+  const side = { blue: { picks: [null,null,null,null,null], bans: [null,null,null,null,null], names: ['','','','',''], roles: ['top','jungle','mid','adc','support'] },
+                 red:  { picks: [null,null,null,null,null], bans: [null,null,null,null,null], names: ['','','','',''], roles: ['top','jungle','mid','adc','support'] } };
+  const teamSideOf = cell => (cell < 5) === weBlue ? ourSide : (ourSide === 'blue' ? 'red' : 'blue');
+  const fill = (cells, isOurTeam) => (cells || []).forEach(c => {
+    const sd = isOurTeam ? ourSide : (ourSide === 'blue' ? 'red' : 'blue');
+    const slot = POS_ROLE[POS2ROLE[c.assignedPosition]] ?? side[sd].picks.indexOf(null);
+    if (slot >= 0 && c.championId) { side[sd].picks[slot] = nm(c.championId); side[sd].roles[slot] = POS2ROLE[c.assignedPosition] || side[sd].roles[slot]; }
+  });
+  fill(s.myTeam, true); fill(s.theirTeam, false);
+  const banList = (arr) => (arr || []).filter(Boolean).map(nm);
+  side[ourSide].bans = banList(s.bans && s.bans.myTeamBans);
+  side[ourSide === 'blue' ? 'red' : 'blue'].bans = banList(s.bans && s.bans.theirTeamBans);
+  // Pick/ban order from the action log.
+  const sequence = [];
+  for (const phase of (s.actions || [])) for (const act of phase) {
+    if (!act.completed || !act.championId) continue;
+    sequence.push({ team: teamSideOf(act.actorCellId), type: act.type === 'ban' ? 'ban' : 'pick', champ: nm(act.championId) });
+  }
+  return { ourSide, sequence, blue: side.blue, red: side.red };
+}
+async function resolveResult(a, gameId) {
+  const mh = await lcuGet(a, '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=4');
+  const games = (mh && mh.games && mh.games.games) || [];
+  const g = gameId ? games.find(x => x.gameId === gameId) : games[0];
+  if (!g) return undefined;                       // not in history yet → retry later
+  let pid = (g.participantIdentities || []).find(pi => pi.player && pi.player.puuid === myPuuid);
+  pid = pid ? pid.participantId : (g.participants && g.participants[0] && g.participants[0].participantId);
+  const part = (g.participants || []).find(p => p.participantId === pid);
+  return part ? (part.stats && part.stats.win ? 'win' : 'loss') : undefined;
+}
+async function watchTick() {
+  const a = lcuAuth(); if (!a) return;
+  try {
+    if (!myPuuid) { const me = await lcuGet(a, '/lol-summoner/v1/current-summoner'); if (me && me !== '404') myPuuid = me.puuid; }
+    const sess = await lcuGet(a, '/lol-gameflow/v1/session');
+    const phase = (sess && sess !== '404' && sess.phase) || 'None';
+    if (phase === 'ChampSelect') {
+      const cs = await lcuGet(a, '/lol-champ-select/v1/session');
+      if (cs && cs !== '404') {
+        const queueId = (sess.gameData && sess.gameData.queue && sess.gameData.queue.id) || null;
+        watch.pending = { gameId: null, queueId, date: new Date().toISOString(), ...snapshotDraft(cs) };
+      }
+    } else if ((phase === 'GameStart' || phase === 'InProgress') && watch.pending) {
+      if (!watch.pending.gameId && sess.gameData && sess.gameData.gameId) watch.pending.gameId = sess.gameData.gameId;
+      watch.pending.inGame = true;
+    } else if (watch.pending && watch.pending.inGame && !['GameStart', 'InProgress', 'ChampSelect'].includes(phase)) {
+      // Game ended — resolve W/L from match history (retry a few ticks until it lands).
+      const gid = watch.pending.gameId;
+      if (gid && watch.savedIds.has(gid)) { watch.pending = null; watch.tries = 0; return; }
+      const result = await resolveResult(a, gid);
+      watch.tries++;
+      if (result !== undefined || watch.tries > 12) {
+        const p = watch.pending;
+        const entry = { gameId: gid || Date.now(), date: p.date, mode: QUEUE_MODE[p.queueId] || 'other',
+          ourSide: p.ourSide, sequence: p.sequence, blue: p.blue, red: p.red, result: result || null, notes: 'Auto-captured live', live: true };
+        saveDraftEntry(entry); if (gid) watch.savedIds.add(gid);
+        watch.pending = null; watch.tries = 0;
+      }
+    }
+  } catch { /* transient LCU error — try next tick */ }
+}
+
 const J = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 
 http.createServer(async (req, res) => {
@@ -106,6 +203,8 @@ http.createServer(async (req, res) => {
     });
     return;
   }
+  // Auto-captured live drafts (full pick/ban order + result) for the tool to merge.
+  if (url === '/api/live-drafts') return J(res, 200, loadDrafts());
   let file = path.join(ROOT, url === '/' ? '/draft-tool.html' : url);
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(file, (err, buf) => {
@@ -113,7 +212,11 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
     res.end(buf);
   });
-}).listen(PORT, () => {
+}).listen(PORT, async () => {
   console.log(`KQF Draft Tool (LIVE) → http://localhost:${PORT}`);
   console.log(lcuAuth() ? 'League client detected ✓' : 'League client not detected yet (start it & enter champ select).');
+  for (const d of loadDrafts()) if (d.gameId) watch.savedIds.add(d.gameId);   // don't re-save known games
+  await loadChampNames();
+  setInterval(watchTick, 3000);   // capture champ select → game → result
+  console.log('Live draft auto-capture armed.');
 });
