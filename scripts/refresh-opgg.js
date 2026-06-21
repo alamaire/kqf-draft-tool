@@ -40,6 +40,11 @@ const ROSTER = [
   { key: 'yoitssam', name: 'YoitsSam', tag: 'NA1' },
   { key: 'lp fisherman', name: 'LP Fisherman', tag: 'NA1' },
 ];
+// Merge any user-added players (written by the companion's /api/save-roster).
+try {
+  const extra = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'roster-custom.json'), 'utf8'));
+  for (const p of (Array.isArray(extra) ? extra : [])) if (p && p.name && !ROSTER.some(r => r.key === p.name)) ROSTER.push({ key: p.name, name: p.display || p.name, tag: p.opggTag || 'NA1' });
+} catch { /* no custom roster file */ }
 // Parse a player's champion pool (ranked match history) off their op.gg page. Each
 // pool champion object is followed by "match_up_stats"; take the {id,play,win,..}
 // that opens it. {championId, games, wins, winRate}, sorted by games.

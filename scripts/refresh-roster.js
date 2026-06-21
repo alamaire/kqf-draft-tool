@@ -24,9 +24,17 @@ const ROSTER = [
   { key: 'yoitssam', name: 'YoitsSam', tag: 'NA1' },
   { key: 'lp fisherman', name: 'LP Fisherman', tag: 'NA1' },
 ];
+// Merge any user-added players (written by the companion's /api/save-roster).
+try {
+  const extra = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'roster-custom.json'), 'utf8'));
+  for (const p of (Array.isArray(extra) ? extra : [])) if (p && p.name && !ROSTER.some(r => r.key === p.name)) ROSTER.push({ key: p.name, name: p.display || p.name, tag: p.opggTag || 'NA1' });
+} catch { /* no custom roster file */ }
 const FULL_ROSTER = 5;          // a team must have this many roster members to count
 const FLEX_QUEUE = 440;         // Ranked Flex
 const RANKED5_QUEUE = null;     // TODO: set to the Ranked 5's queueId once it launches (Jun 26)
+const SOLO_QUEUE = 420;         // Ranked Solo/Duo — for the solo-queue matchup history
+const SOLO_KEY = 'monkeydadam'; // the player Solo Queue mode optimizes for (SOLO_PLAYER in the tool)
+const POS = { TOP: 'top', JUNGLE: 'jungle', MIDDLE: 'mid', BOTTOM: 'adc', UTILITY: 'support' };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const GAP = 800;
 
@@ -38,6 +46,14 @@ async function getJSON(url) {
     return null;
   }
   return null;
+}
+// Cached match fetch (so solo + roster passes never double-pull the same match).
+const _matchCache = {};
+async function getMatch(id) {
+  if (_matchCache[id] !== undefined) return _matchCache[id];
+  const md = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/${id}`);
+  await sleep(GAP);
+  return (_matchCache[id] = md);
 }
 function modeFor(q) { return q === FLEX_QUEUE ? 'flex' : q === RANKED5_QUEUE ? 'ranked5' : 'other'; }
 
@@ -67,8 +83,7 @@ async function main() {
   const bucket = m => (buckets[m] = buckets[m] || { record: { games: 0, wins: 0 }, pools: {} });
   const queueTally = {};   // queueId -> # of full-roster games (so a new mode self-identifies)
   for (const id of candidates) {
-    const md = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/${id}`);
-    await sleep(GAP);
+    const md = await getMatch(id);
     if (!md || !md.info) continue;
     const ps = md.info.participants;
     const byTeam = {};
@@ -88,8 +103,11 @@ async function main() {
       const c = pool[p.championId] = pool[p.championId] || { championId: p.championId, games: 0, wins: 0 };
       c.games++; if (p.win) c.wins++;
     }
+    // Bans, ordered by pickTurn (match-v5 has ban order but NOT pick order).
+    const ourTeamId = team[0].teamId, theirTeamId = ourTeamId === 100 ? 200 : 100;
+    const banOf = tid => { const t = (md.info.teams || []).find(t => t.teamId === tid); return t ? (t.bans || []).slice().sort((a, b) => a.pickTurn - b.pickTurn).map(b => b.championId).filter(x => x > 0) : []; };
     // per-game record (for the match-history list + per-game analysis)
-    (b.games = b.games || []).push({ id, win: won, date: md.info.gameEndTimestamp || md.info.gameCreation || 0, picks });
+    (b.games = b.games || []).push({ id, win: won, date: md.info.gameEndTimestamp || md.info.gameCreation || 0, picks, bans: { our: banOf(ourTeamId), their: banOf(theirTeamId) } });
   }
 
   // shape: each mode + an "all" combined bucket
@@ -111,15 +129,40 @@ async function main() {
       c.games += src.games; c.wins += src.wins;
     }
   }
+  // ── SOLO-QUEUE matchup history for SOLO_KEY — "how I do vs specific champs" ──
+  // matchups[myChampId][vsChampId] = [games, wins] (lane opponent = same teamPosition,
+  // other team); byRole[role][myChampId] = [games, wins].
+  let solo = null;
+  const soloPuuid = Object.keys(puuidToKey).find(pu => puuidToKey[pu] === SOLO_KEY);
+  if (soloPuuid) {
+    const ids = await getJSON(`https://${REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/${soloPuuid}/ids?queue=${SOLO_QUEUE}&count=50`);
+    const matchups = {}, byRole = {};
+    let games = 0;
+    for (const id of (ids || [])) {
+      const md = await getMatch(id);
+      if (!md || !md.info) continue;
+      const me = md.info.participants.find(p => p.puuid === soloPuuid);
+      if (!me || !me.teamPosition) continue;
+      games++;
+      const myC = me.championId, role = POS[me.teamPosition] || null, won = !!me.win;
+      if (role) { const r = byRole[role] = byRole[role] || {}; const t = r[myC] = r[myC] || [0, 0]; t[0]++; if (won) t[1]++; }
+      const opp = md.info.participants.find(p => p.teamId !== me.teamId && p.teamPosition === me.teamPosition);
+      if (opp) { const mm = matchups[myC] = matchups[myC] || {}; const rec = mm[opp.championId] = mm[opp.championId] || [0, 0]; rec[0]++; if (won) rec[1]++; }
+    }
+    if (games) solo = { player: SOLO_KEY, games, matchups, byRole };
+    console.log(`solo (${SOLO_KEY}): ${games} ranked-solo games, ${Object.keys(matchups).length} champs with matchups`);
+  }
+
   const payload = {
     generated: new Date().toISOString(),
     flex: shape(bucket('flex')),
     ranked5: shape(bucket('ranked5')),
     other: shape(bucket('other')),
     all: shape(all),
+    solo,
   };
   // Don't clobber good data with an empty pull (transient API issue / key trouble).
-  if (all.record.games === 0 && fs.existsSync(OUT)) { console.error('0 full-roster games found — keeping existing roster-data.js.'); process.exit(1); }
+  if (all.record.games === 0 && !solo && fs.existsSync(OUT)) { console.error('0 full-roster games and no solo data — keeping existing roster-data.js.'); process.exit(1); }
   fs.writeFileSync(OUT, 'window.ROSTER_DATA = ' + JSON.stringify(payload) + ';\n');
   for (const m of ['flex', 'ranked5', 'other', 'all'])
     console.log(`${m}: ${payload[m].record.wins}W-${payload[m].record.games - payload[m].record.wins}L of ${payload[m].record.games}`);

@@ -155,7 +155,14 @@ body{background:var(--dark);color:var(--gold-l);font-family:'Segoe UI',system-ui
 .best-badge{font-size:8px;font-weight:700;letter-spacing:1px;color:#021;background:var(--green);padding:1px 6px;border-radius:8px;margin-left:6px}
 /* ── HISTORY MODAL ── */
 #history-modal{position:fixed;inset:0;background:#000000CC;z-index:999;display:flex;align-items:center;justify-content:center}
-#riot-key-modal{position:fixed;inset:0;background:#000000CC;z-index:1000;display:flex;align-items:center;justify-content:center}
+#riot-key-modal,#add-player-modal{position:fixed;inset:0;background:#000000CC;z-index:1000;display:flex;align-items:center;justify-content:center}
+.add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:70px;border:1px dashed var(--gold-d)!important;background:transparent;cursor:pointer;opacity:.8}
+.add-card:hover{opacity:1;border-color:var(--gold)!important}
+.add-plus{font-size:22px;color:var(--gold);line-height:1}
+.add-lbl{font-size:9px;color:var(--gray-l)}
+.pc-remove{color:var(--gray-l);font-size:10px;cursor:pointer;padding:0 3px;margin-left:auto}
+.pc-remove:hover{color:var(--red)}
+.ap-sub-lbl{display:flex;align-items:center;gap:4px;color:var(--gold-l);font-size:11px;white-space:nowrap}
 .rk-box{background:var(--dark2);border:1px solid var(--gold);border-radius:8px;width:440px;max-width:92vw;padding:18px;display:flex;flex-direction:column;gap:10px}
 .rk-title{color:var(--gold);font-weight:800;font-size:15px;letter-spacing:1px}
 .rk-body{color:var(--gold-l);font-size:12px;line-height:1.5}
@@ -330,6 +337,9 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .rg-date{font-size:9px;color:var(--gray-l);width:42px;flex-shrink:0}
 .rg-champs{display:flex;gap:3px;flex-wrap:wrap}
 .rg-champ{width:22px;height:22px;border-radius:3px;border:1px solid var(--gold-d)}
+.rg-bans{display:flex;gap:3px;align-items:center;margin-left:auto}
+.rg-bans-lbl{font-size:8px;color:var(--gray-l);letter-spacing:.5px}
+.rg-ban{width:16px;height:16px;border-radius:3px;filter:grayscale(1) brightness(.7);position:relative}
 .bans-toggle-row{display:flex;align-items:center;gap:6px}
 .bans-toggle-lbl{font-size:10px;color:var(--gray-l);font-weight:600;letter-spacing:1px}
 .ban-slot-x{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:var(--red);border:none;color:white;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:2;line-height:1}
@@ -1353,15 +1363,23 @@ function teamRecord() {
   const r = b && b.record ? b.record : { games: 0, wins: 0 }
   return { games: r.games, wins: r.wins, losses: r.games - r.wins, wr: r.games ? Math.round(r.wins / r.games * 100) : 0 }
 }
-const roster = KQF_ROSTER.map(p => ({
-  ...p,
-  role: p.defaultRole,
-  active: !p.isSub,
-  opggTag: p.opggTag,
-  pool: matchHistoryPool(p.name),
-  poolLoading: false,
-  poolError: null,
-}))
+// Custom players the user added (persisted in this browser). Merged with KQF_ROSTER.
+function customPlayers() { try { return JSON.parse(localStorage.getItem('kqf_custom_players') || '[]') } catch { return [] } }
+const roster = []
+function rebuildRoster() {
+  const all = [...KQF_ROSTER, ...customPlayers()]
+  roster.length = 0
+  for (const p of all) roster.push({
+    ...p,
+    role: p.role || p.defaultRole,
+    active: !p.isSub,
+    opggTag: p.opggTag,
+    pool: matchHistoryPool(p.name),
+    poolLoading: false,
+    poolError: null,
+  })
+}
+rebuildRoster()
 
 const DRAFT_ORDER = [
   {team:'blue',type:'ban',slot:0},{team:'red',type:'ban',slot:0},
@@ -1682,6 +1700,7 @@ function renderRoster() {
     return `<div class="${cardClass}" id="pc-${i}">
       <div class="pc-top">
         <span class="pc-name" title="${p.display||p.name}">${p.display||p.name}</span>
+        ${p.custom ? `<span class="pc-remove" onclick="event.stopPropagation();removeCustomPlayer('${p.name.replace(/'/g,"\\'")}')" title="Remove ${p.display||p.name} from roster">✕</span>` : ''}
         ${toggleBtn}
       </div>
       <div class="pc-bottom">
@@ -1704,7 +1723,9 @@ function renderRoster() {
             ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px" title="Showing baseline pool. Click ↺ to pull live OP.GG data.">baseline · ↺ for live</div>`
             : ''}
     </div>`
-  }).join('')
+  }).join('') + `<div class="player-card add-card" onclick="openAddPlayer()" title="Add a player to the roster">
+      <div class="add-plus">+</div><div class="add-lbl">Add player</div>
+    </div>`
 }
 
 // Tracker view — team + per-player games/win-rate from full-roster Riot games,
@@ -1731,7 +1752,12 @@ function renderTracker(el) {
       return c ? `<img class="rg-champ" src="${c.img}" title="${(p.display || p.name)}: ${c.name}" alt="${c.name}"/>` : ''
     }).join('')
     const d = g.date ? new Date(g.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
-    return `<div class="rg-row"><span class="rg-res ${g.win ? 'w' : 'l'}">${g.win ? 'W' : 'L'}</span><span class="rg-date">${d}</span><span class="rg-champs">${champs}</span></div>`
+    // Our bans, in draft order (match-v5 gives ban order via pickTurn; pick order isn't available).
+    const ourBans = (g.bans && g.bans.our) || []
+    const bansHtml = ourBans.length
+      ? `<span class="rg-bans"><span class="rg-bans-lbl">BANS</span>${ourBans.map((id, i) => { const c = CHAMPS[id]; return c ? `<img class="rg-ban" src="${c.img}" title="Ban ${i + 1}: ${c.name}" alt=""/>` : '' }).join('')}</span>`
+      : ''
+    return `<div class="rg-row"><span class="rg-res ${g.win ? 'w' : 'l'}">${g.win ? 'W' : 'L'}</span><span class="rg-date">${d}</span><span class="rg-champs">${champs}</span>${bansHtml}</div>`
   }).join('')
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
@@ -1752,6 +1778,38 @@ function setPlayerRole(idx, role) {
   render()
 }
 window.setPlayerRole = setPlayerRole
+
+// ── Add / remove roster players (persisted per browser; data loads on next pull) ──
+function openAddPlayer() { document.getElementById('add-player-modal').classList.remove('hidden'); const n = document.getElementById('ap-name'); if (n) n.focus() }
+function closeAddPlayer() { document.getElementById('add-player-modal').classList.add('hidden') }
+function persistCustom(cps) {
+  try { localStorage.setItem('kqf_custom_players', JSON.stringify(cps)) } catch {}
+  // If the companion is running, mirror to a file so the data scripts pull them too.
+  if (_companionPresent) fetch('/api/save-roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cps) }).catch(() => {})
+}
+function addCustomPlayer() {
+  const display = document.getElementById('ap-name').value.trim()
+  const tag = (document.getElementById('ap-tag').value.trim() || 'NA1').replace(/^#/, '')
+  const role = document.getElementById('ap-role').value
+  const isSub = document.getElementById('ap-sub').checked
+  const note = document.getElementById('ap-note')
+  if (!display) { note.textContent = 'Enter a summoner name.'; return }
+  const name = display.toLowerCase()
+  if ([...KQF_ROSTER, ...customPlayers()].some(p => p.name === name)) { note.textContent = 'That player is already on the roster.'; return }
+  const cps = customPlayers()
+  cps.push({ name, display, defaultRole: role, role, isSub, opggTag: tag, custom: true })
+  persistCustom(cps)
+  rebuildRoster(); applyRosterToTeam(); render()
+  note.textContent = '✓ Added. Refresh the data (Riot key popup / op.gg) to load their pool & games.'
+  document.getElementById('ap-name').value = ''; document.getElementById('ap-tag').value = ''
+  setTimeout(closeAddPlayer, 1100)
+}
+function removeCustomPlayer(name) {
+  persistCustom(customPlayers().filter(p => p.name !== name))
+  rebuildRoster(); applyRosterToTeam(); render()
+}
+window.openAddPlayer = openAddPlayer; window.closeAddPlayer = closeAddPlayer
+window.addCustomPlayer = addCustomPlayer; window.removeCustomPlayer = removeCustomPlayer
 
 function togglePlayer(idx) {
   const p = roster[idx]
@@ -2897,11 +2955,21 @@ function assignRelativeVerdicts(picks) {
 
 // Solo Queue recommendations — best champ for SOLO_PLAYER to lock in, drawn
 // from their own pool, weighted to the chosen role and the live matchup.
+// Your personal solo-queue record on myChamp vs a specific opponent (from Riot
+// match history, ROSTER_DATA.solo). null if you haven't faced them on it.
+function soloMatchupRec(myChampId, vsChampId) {
+  const s = window.ROSTER_DATA && window.ROSTER_DATA.solo
+  const r = s && s.matchups && s.matchups[myChampId] && s.matchups[myChampId][vsChampId]
+  if (!r || !r[0]) return null
+  return { g: r[0], w: r[1], l: r[0] - r[1], wr: Math.round(r[1] / r[0] * 100) }
+}
 function getSoloSuggestions(allyPicks, enemyPicks, used) {
   const me = roster.find(p => p.name === SOLO_PLAYER)
   const pool = (me?.pool || []).filter(e => !used.has(e.championId) && CHAMPS[e.championId])
   const roleTags = ROLE_TAGS[soloRole] || []
   const picks = []
+  // The enemy laner we'll face (enemy champ that plays our role) — for matchup history.
+  const laner = enemyPicks.find(id => { const cr = champRoles(id); return cr.size ? cr.has(soloRole) : (primaryRole(id) === soloRole) })
 
   for (const e of pool) {
     const c = CHAMPS[e.championId]
@@ -2919,9 +2987,19 @@ function getSoloSuggestions(allyPicks, enemyPicks, used) {
     const m       = metaForRole(c.id, soloRole)   // current-patch strength in the role
     const syn = synergyScore(c.id, allyPicks)
     const cByPen = Math.min(0.15, counteredByNames(c.id, enemyPicks).length * 0.08)
-    let score = fam * 0.40 + counter * 0.24 + m.score * 0.14 + comp * 0.12 + syn * 0.10 - cByPen
+    // Personal matchup history vs the enemy laner — your own success/struggle on this
+    // champ into them weighs in and is surfaced in the reason.
+    let muBoost = 0, muNote = ''
+    const rec = laner ? soloMatchupRec(c.id, laner) : null
+    if (rec && rec.g >= 2) {
+      muBoost = ((rec.wr - 50) / 50) * 0.12 * Math.min(1, rec.g / 5)
+      const tone = rec.wr >= 60 ? ' — you beat them on it' : rec.wr <= 40 ? ' — a matchup you’ve struggled with' : ''
+      muNote = `Your solo record vs ${CHAMPS[laner].name} on ${c.name}: ${rec.w}-${rec.l} (${rec.wr}%)${tone}.`
+    }
+    let score = fam * 0.40 + counter * 0.24 + m.score * 0.14 + comp * 0.12 + syn * 0.10 + muBoost - cByPen
     const sc100 = Math.max(0, Math.round(score * 100))
-    const reason = generatePickReason(c, me, e, allyPicks, enemyPicks)
+    let reason = generatePickReason(c, me, e, allyPicks, enemyPicks)
+    if (muNote) reason = reason ? reason + ' ' + muNote : muNote
     const sub = m.wr !== null ? `${m.wr.toFixed(1)}% WR · ${PATCH}` : ''
     picks.push({ id: c.id, score: sc100, reason, sub, inRole })
   }
@@ -3576,6 +3654,25 @@ init()
     </div>
     <div class="rk-note" id="rk-note">Saved here only (your browser) — give it to the refresh helper to update the roster data.</div>
     <button class="rk-dismiss" onclick="dismissRiotKey()">Dismiss</button>
+  </div>
+</div>
+<div id="add-player-modal" class="hidden">
+  <div class="rk-box">
+    <div class="rk-title">+ Add player to roster</div>
+    <div class="rk-body">Add a teammate or sub. Their champion pool & game history load on the next data refresh.</div>
+    <div class="rk-row"><input id="ap-name" class="rk-input" placeholder="Summoner name (e.g. Faker)" /></div>
+    <div class="rk-row">
+      <input id="ap-tag" class="rk-input" placeholder="Tag (NA1)" style="flex:0 0 90px" />
+      <select id="ap-role" class="rk-input">
+        <option value="top">Top</option><option value="jungle">Jungle</option><option value="mid">Mid</option><option value="adc">ADC</option><option value="support">Support</option>
+      </select>
+      <label class="ap-sub-lbl"><input type="checkbox" id="ap-sub" /> Sub</label>
+    </div>
+    <div class="rk-note" id="ap-note">Saved in your browser. With the companion running it’s also queued for the next data pull.</div>
+    <div class="rk-row" style="justify-content:flex-end">
+      <button class="rk-dismiss" onclick="closeAddPlayer()">Cancel</button>
+      <button class="rk-save" onclick="addCustomPlayer()">Add</button>
+    </div>
   </div>
 </div>
 </body>

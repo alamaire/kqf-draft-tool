@@ -91,6 +91,21 @@ http.createServer(async (req, res) => {
     });
     return;
   }
+  // Persist the user's custom roster players to a file the refresh scripts read,
+  // so added players' op.gg pools + Riot games get pulled on the next refresh.
+  if (req.method === 'POST' && url === '/api/save-roster') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 20000) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const arr = JSON.parse(body);
+        if (!Array.isArray(arr)) throw 0;
+        fs.writeFileSync(path.join(ROOT, 'roster-custom.json'), JSON.stringify(arr, null, 2));
+        J(res, 200, { ok: true });
+      } catch { J(res, 400, { ok: false, error: 'bad payload' }); }
+    });
+    return;
+  }
   let file = path.join(ROOT, url === '/' ? '/draft-tool.html' : url);
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(file, (err, buf) => {
