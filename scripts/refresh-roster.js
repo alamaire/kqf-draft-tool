@@ -49,6 +49,8 @@ async function main() {
     await sleep(GAP);
   }
   console.log('resolved', Object.keys(puuidToKey).length, '/', ROSTER.length, 'puuids');
+  // A bad/expired key resolves 0 puuids — fail loudly instead of overwriting good data.
+  if (Object.keys(puuidToKey).length === 0) { console.error('No puuids resolved — key is invalid or expired. Keeping existing roster-data.js.'); process.exit(1); }
 
   const matchCount = {};
   for (const puuid of Object.keys(puuidToKey)) {
@@ -116,6 +118,8 @@ async function main() {
     other: shape(bucket('other')),
     all: shape(all),
   };
+  // Don't clobber good data with an empty pull (transient API issue / key trouble).
+  if (all.record.games === 0 && fs.existsSync(OUT)) { console.error('0 full-roster games found — keeping existing roster-data.js.'); process.exit(1); }
   fs.writeFileSync(OUT, 'window.ROSTER_DATA = ' + JSON.stringify(payload) + ';\n');
   for (const m of ['flex', 'ranked5', 'other', 'all'])
     console.log(`${m}: ${payload[m].record.wins}W-${payload[m].record.games - payload[m].record.wins}L of ${payload[m].record.games}`);

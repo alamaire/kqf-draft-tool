@@ -1240,7 +1240,13 @@ function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
   const body = document.getElementById('rk-body')
-  if (body) body.textContent = `Your Riot dev key expires every 24h. The roster match-history ${ageTxt}, so it needs a fresh pull to keep learning from new games.`
+  if (body) body.textContent = _companionPresent
+    ? `Your Riot dev key expires every 24h. The roster match-history ${ageTxt} — paste a fresh key and it refreshes live (~1 min).`
+    : `Your Riot dev key expires every 24h. The roster match-history ${ageTxt}, so it needs a fresh pull to keep learning from new games.`
+  const note = document.getElementById('rk-note')
+  if (note) note.textContent = _companionPresent
+    ? 'Companion detected — pasting your key re-pulls the roster data and reloads.'
+    : 'Saved in your browser. Run the companion (node companion.js) to refresh live with it.'
   document.getElementById('riot-key-modal').classList.remove('hidden')
 }
 // Show once per day when the roster data is stale (key likely expired).
@@ -1248,12 +1254,29 @@ function checkRosterFreshness() {
   let dismissed = null; try { dismissed = localStorage.getItem('rk_dismissed') } catch {}
   if (rosterDataAgeHours() >= 20 && dismissed !== new Date().toDateString()) openRiotKeyModal()
 }
-function saveRiotKey() {
+async function saveRiotKey() {
   const v = document.getElementById('rk-input').value.trim()
   const note = document.getElementById('rk-note')
   if (!/^RGAPI-/.test(v)) { note.textContent = "That doesn't look like an RGAPI-… key."; return }
   try { localStorage.setItem('riot_key', v) } catch {}
-  note.textContent = '✓ Saved in your browser. Hand it to the refresh helper to update the roster data.'
+  if (!_companionPresent) {
+    note.textContent = '✓ Saved in your browser. Run the companion (node companion.js) to refresh the roster data live with it.'
+    return
+  }
+  // Companion is running → re-pull the roster data live with the pasted key.
+  note.textContent = '⏳ Refreshing roster data… (~1 min, fetching your games from Riot)'
+  try {
+    const r = await fetch('/api/refresh-roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: v }) })
+    const d = await r.json().catch(() => ({}))
+    if (r.ok && d.ok) {
+      note.textContent = '✓ Roster data refreshed — reloading…'
+      setTimeout(() => location.reload(), 900)
+    } else {
+      note.textContent = '⚠ ' + (d.error || 'Refresh failed — the key may be expired. Grab a fresh one above.')
+    }
+  } catch (e) {
+    note.textContent = '⚠ Could not reach the companion. Is node companion.js still running?'
+  }
 }
 function dismissRiotKey() {
   try { localStorage.setItem('rk_dismissed', new Date().toDateString()) } catch {}
@@ -1265,6 +1288,7 @@ window.dismissRiotKey = dismissRiotKey
 
 // ── Live champ-select sync (only when served by the local companion app) ─────
 let _liveTimer = null
+let _companionPresent = false   // true when served by companion.js (enables live key refresh)
 function setLiveStatus(txt, cls) {
   const el = document.getElementById('live-status'); if (!el) return
   el.className = cls || ''; el.textContent = txt
@@ -1305,6 +1329,9 @@ function startLive() {
   // The companion exposes /api/lcu; the static github.io site doesn't → stays manual.
   fetch('/api/lcu', { cache: 'no-store' }).then(r => {
     if (!r.ok) return
+    _companionPresent = true   // enables live key-refresh in the popup
+    const modal = document.getElementById('riot-key-modal')
+    if (modal && !modal.classList.contains('hidden')) openRiotKeyModal()   // refresh text now that companion is known
     setLiveStatus('live ready', 'on')
     _liveTimer = setInterval(pollLive, 1500); pollLive()
   }).catch(() => { /* no companion — normal manual mode */ })

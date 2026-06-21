@@ -10,6 +10,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';   // LCU uses a self-signed cert
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const PORT = process.env.PORT || 5500;
 const ROOT = path.resolve(__dirname);
@@ -60,12 +61,35 @@ async function champSelect() {
   } catch (e) { return { active: false, reason: String(e.message || e) }; }
 }
 
+const J = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+
 http.createServer(async (req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (url === '/api/lcu') {
     const data = await champSelect();
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify(data));
+    return J(res, 200, data);
+  }
+  // Paste a fresh Riot key → run the roster re-pull live (key only as an env var to
+  // the child process; never written to disk; roster-data.js output is pure stats).
+  if (req.method === 'POST' && url === '/api/refresh-roster') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 4000) req.destroy(); });
+    req.on('end', () => {
+      let key = ''; try { key = (JSON.parse(body).key || '').trim(); } catch {}
+      if (!/^RGAPI-[0-9a-f-]+$/i.test(key)) return J(res, 400, { ok: false, error: 'That is not a valid RGAPI- key.' });
+      execFile(process.execPath, ['scripts/refresh-roster.js'],
+        // Riot's API has valid certs → keep TLS verification ON for the child (only the
+        // LCU needs it relaxed). Key passed as env only; never written to disk.
+        { cwd: ROOT, env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '1', RIOT_KEY: key }, timeout: 180000, maxBuffer: 1 << 20 },
+        (err, stdout, stderr) => {
+          if (err) {
+            const lines = ((stderr || err.message) || '').toString().trim().split('\n').filter(l => l.trim());
+            return J(res, 500, { ok: false, error: lines.pop() || 'refresh failed' });
+          }
+          J(res, 200, { ok: true, log: stdout.toString().trim().split('\n').slice(-6) });
+        });
+    });
+    return;
   }
   let file = path.join(ROOT, url === '/' ? '/draft-tool.html' : url);
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end('Forbidden'); }
