@@ -653,16 +653,75 @@ function champIdentityPhrase(champId, role) {
   if (t.includes('Support')) return 'utility support — CC, peel and vision'
   return `${dmg} ${champArchetype(champId)}`
 }
-// Teamfight roles (curated, kit-driven) for pro-style composition logic.
+// Teamfight roles. These start as a curated FLOOR and are WIDENED to cover every
+// champion at load by buildArchetypeSets() (subclass map + itero data) — so comp
+// archetype detection / counter-bias fires on all champs, not just these seeds.
 const ENGAGE  = new Set([54,111,89,412,113,154,57,59,32,526,516,79,3,53,72,12,33,154])  // hard CC initiators
 const PEEL    = new Set([117,40,201,43,902,888,223,16,267,350,37])                       // enchanters / guardians
 const POKE    = new Set([115,101,161,126,110,51,142,99,910,8,134])                        // long-range siege
 const SCALING = new Set([222,145,523,38,45,10,901,75,235,67,134])                         // hypercarries / scaling
+const DIVE    = new Set()                                                                 // divers / assassins (built below)
 function teamHas(picks, set) { return picks.some(id => set.has(id)) }
 // Reliable hard-CC / lockdown
 const CC = new Set([412,89,111,53,526,201,54,113,154,57,59,3,32,99,161,90,127,131,79,12,33,72,143,25])
 // Safe to pick early / blind (flexible or hard to hard-counter)
 const BLIND = new Set([54,98,516,113,3,111,412,201,57,60,222,21,103,79,89,517,113])
+
+// Champion SUBCLASS map (by name → kit class). Subclasses are stable knowledge and
+// map cleanly to comp tools that raw Riot tags + itero data can't infer (engage,
+// peel, poke, pick). Names resolve via NAME_ID at load; misses just fall back to
+// tags/itero. This is the single source that widens ENGAGE/PEEL/POKE/CC/DIVE.
+const SUBCLASS = {
+  // vanguard — hard-engage tanks (engage + CC + frontline)
+  Malphite:'vanguard', Leona:'vanguard', Nautilus:'vanguard', Sejuani:'vanguard', Amumu:'vanguard',
+  Zac:'vanguard', Maokai:'vanguard', Ornn:'vanguard', Rell:'vanguard', Alistar:'vanguard', Rammus:'vanguard',
+  Sion:'vanguard', Skarner:'vanguard', 'Nunu & Willump':'vanguard', Gragas:'vanguard', Galio:'vanguard',
+  // warden — peel tanks (peel + frontline + CC)
+  Braum:'warden', 'Tahm Kench':'warden', Shen:'warden', Poppy:'warden', "K'Sante":'warden', Taric:'warden',
+  // enchanter — peel / sustain supports
+  Janna:'enchanter', Lulu:'enchanter', Soraka:'enchanter', Nami:'enchanter', Sona:'enchanter', Yuumi:'enchanter',
+  Milio:'enchanter', Karma:'enchanter', "Renata Glasc":'enchanter', Ivern:'enchanter', Seraphine:'enchanter',
+  // catcher — pick / lockdown (hooks, roots, binds)
+  Thresh:'catcher', Blitzcrank:'catcher', Morgana:'catcher', Pyke:'catcher', Bard:'catcher', Rakan:'catcher',
+  Zyra:'catcher', Neeko:'catcher', Ahri:'catcher',
+  // artillery — long-range poke
+  Xerath:'artillery', Ziggs:'artillery', "Vel'Koz":'artillery', Lux:'artillery', Jayce:'artillery', Nidalee:'artillery', Zoe:'artillery',
+  // battlemage — sustained-AoE casters with siege pressure (count as poke)
+  Cassiopeia:'battlemage', Swain:'battlemage', Vladimir:'battlemage', Rumble:'battlemage', Anivia:'battlemage',
+  Karthus:'battlemage', Taliyah:'battlemage', Ryze:'battlemage', Viktor:'battlemage', Singed:'battlemage', Malzahar:'battlemage',
+  // diver — engage bruisers / divers
+  Camille:'diver', Vi:'diver', 'Jarvan IV':'diver', Hecarim:'diver', Diana:'diver', Wukong:'diver', Elise:'diver',
+  "Rek'Sai":'diver', Nocturne:'diver', 'Xin Zhao':'diver', Warwick:'diver', Pantheon:'diver', Irelia:'diver',
+  Kled:'diver', 'Lee Sin':'diver', Jarvan:'diver',
+  // juggernaut — durable bruisers (frontline; no hard engage)
+  Darius:'juggernaut', Garen:'juggernaut', Mordekaiser:'juggernaut', Illaoi:'juggernaut', Sett:'juggernaut',
+  Aatrox:'juggernaut', Volibear:'juggernaut', "Dr. Mundo":'juggernaut', Nasus:'juggernaut', Trundle:'juggernaut',
+  Urgot:'juggernaut', Yorick:'juggernaut', Olaf:'juggernaut', Shyvana:'juggernaut', Udyr:'juggernaut', Renekton:'juggernaut',
+  // skirmisher — duelists / split
+  Yasuo:'skirmisher', Yone:'skirmisher', 'Master Yi':'skirmisher', Fiora:'skirmisher', Jax:'skirmisher',
+  Tryndamere:'skirmisher', Riven:'skirmisher', Gwen:'skirmisher', "Bel'Veth":'skirmisher', Viego:'skirmisher',
+  Kayn:'skirmisher', Lillia:'skirmisher', Ambessa:'skirmisher',
+}
+// Widen the teamfight-role sets to all champs using SUBCLASS + tags + itero. Called
+// in init() once champ data + NAME_ID + OPGG_DATA are ready. Strictly additive.
+function buildArchetypeSets() {
+  for (const c of CHAMP_LIST) {
+    const id = c.id, t = c.tags || []
+    const s = SUBCLASS[c.name] || ''
+    const assassin = t.includes('Assassin')
+    if (s === 'vanguard' || s === 'diver' || s === 'catcher') ENGAGE.add(id)
+    if (s === 'enchanter' || s === 'warden') PEEL.add(id)
+    if (s === 'artillery' || s === 'battlemage') POKE.add(id)
+    if (s === 'vanguard' || s === 'catcher' || s === 'warden') CC.add(id)
+    if (s === 'diver' || s === 'skirmisher' || assassin) DIVE.add(id)
+    // SCALING — itero late-game lean, or a hypercarry marksman.
+    const it = champItero(id)
+    if (it && it.late != null && it.early != null && it.late - it.early >= 0.04) SCALING.add(id)
+    if (t.includes('Marksman') && it && it.late != null && it.late >= 0.51) SCALING.add(id)
+  }
+}
+// Subclass of a champion (from the curated map), or '' if unmapped.
+function subclassOf(id) { const c = CHAMPS[id]; return (c && SUBCLASS[c.name]) || '' }
 // Curated synergies: championId → ally championIds it pairs especially well with
 const SYN = {
   21:[89,111,32,412],          // Miss Fortune ult ↔ lockdown engage
@@ -1311,6 +1370,7 @@ async function init() {
     }
     CHAMP_LIST = Object.values(CHAMPS).sort((a,b)=>a.name.localeCompare(b.name))
     for (const c of CHAMP_LIST) NAME_ID[c.name] = c.id   // reverse lookup for op.gg names
+    buildArchetypeSets()   // widen ENGAGE/PEEL/POKE/CC/DIVE/SCALING to all champs (subclass + itero)
     for (const c of CHAMP_LIST) {
       const m = META[c.key] || META[c.name.replace(/[' ]/g,'')] || null
       const td = m ? {tier:m.t,roles:m.r,pro:m.p??0} : {tier:3,roles:[],pro:0}
@@ -3161,7 +3221,7 @@ function archetypeCounterBoost(champId, enemyArch) {
     case 'engage':    return ENGAGE.has(champId) ? 0.06 : 0
     case 'peel':      return PEEL.has(champId) ? 0.06 : tank ? 0.03 : 0
     case 'tank':      return tank ? 0.05 : 0
-    case 'dive':      return (assassin || ENGAGE.has(champId)) ? 0.05 : 0
+    case 'dive':      return (DIVE.has(champId) || assassin || ENGAGE.has(champId)) ? 0.05 : 0
     case 'disengage': return (POKE.has(champId) || PEEL.has(champId)) ? 0.05 : 0
   }
   return 0
@@ -3208,7 +3268,9 @@ function teamProfile(side) {
     peel: ids.filter(id => PEEL.has(id)).length,
     poke: ids.filter(id => POKE.has(id)).length,
     cc: ids.filter(id => CC.has(id)).length,
+    dive: ids.filter(id => DIVE.has(id)).length,
     scaling: ids.filter(id => SCALING.has(id)).length,
+    sc: ids.reduce((m, id) => { const s = subclassOf(id); if (s) m[s] = (m[s] || 0) + 1; return m }, {}),
     tanks: tags.filter(t => t === 'Tank').length,
     assassins: tags.filter(t => t === 'Assassin').length,
     hyper: champs.some(c => SCALING.has(c.id) && c.tags.includes('Marksman')),
@@ -3234,13 +3296,22 @@ function rateLevel(v, hi, mid) {
   if (v >= mid) return { t: 'Med',  c: 'var(--yellow)' }
   return { t: v ? 'Low' : 'None', c: v ? 'var(--gray-l)' : '#E87A65' }
 }
+// Classify by SUBCLASS counts (kit-accurate) rather than the broad tool sets.
 function compArchetype(p) {
   if (!p.n) return 'Flexible'
-  if (p.poke >= 2 && p.engage === 0) return 'Poke/Siege'
-  if (p.engage >= 2 && (p.assassins >= 1 || p.engage >= 3)) return 'Dive'
-  if (p.hasTank && p.peel >= 1 && (p.hyper || p.scaling >= 1)) return 'Front-to-back'
-  if (p.cc >= 2 && p.engage < 2 && (p.assassins >= 1 || p.poke >= 1)) return 'Pick'
-  if (p.engage >= 1 && p.hasTank) return 'Engage'
+  const sc = p.sc || {}
+  const pokeCnt     = (sc.artillery || 0) + (sc.battlemage || 0)
+  const engageTanks = (sc.vanguard || 0)
+  const tankish     = (sc.vanguard || 0) + (sc.warden || 0) + (sc.juggernaut || 0)
+  const peelCnt     = (sc.enchanter || 0) + (sc.warden || 0)
+  const diveCnt     = (sc.diver || 0) + (sc.skirmisher || 0) + (p.assassins || 0)
+  if (pokeCnt >= 2 && engageTanks === 0) return 'Poke/Siege'                   // long-range, no commit
+  if (tankish >= 1 && peelCnt >= 1 && (p.hyper || p.scaling >= 1)) return 'Front-to-back'  // tank + peel + carry
+  if (engageTanks >= 2) return 'Engage'                                        // multiple hard-engage tanks (wombo)
+  if (diveCnt >= 3 || ((sc.diver || 0) >= 2 && (p.assassins || 0) >= 1)) return 'Dive'     // mobility to backline
+  if ((sc.catcher || 0) >= 2 && tankish === 0) return 'Pick'                   // hooks/roots, no frontline
+  if (engageTanks >= 1 && (p.hyper || p.scaling >= 1)) return 'Front-to-back'
+  if (engageTanks >= 1) return 'Engage'
   return 'Flexible'
 }
 function compNeeds(p) {
