@@ -2550,7 +2550,7 @@ function historySave(entry) {
   h.unshift(entry)
   if (h.length > 60) h.splice(60)
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch {}
-  _histCache = null   // re-learn from the updated record
+  _histCache = null; _archWRCache = null   // re-learn from the updated record
 }
 
 // ── Learning from our own match history ──────────────────────────────────────
@@ -2661,6 +2661,33 @@ function confirmSaveDraft(result) {
   if (btn) { btn.textContent = result === 'win' ? '✓ Win Saved' : '✓ Loss Saved'; btn.disabled = true }
 }
 
+// Backup / restore — drafts + custom players live in this browser's localStorage,
+// so a file export makes them un-loseable (e.g. across a domain change or new device).
+function exportData() {
+  const data = { app: 'kqf-draft-tool', exported: new Date().toISOString(), history: historyLoad(), customPlayers: customPlayers() }
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+  a.download = `kqf-draft-backup-${new Date().toISOString().slice(0, 10)}.json`
+  a.click(); URL.revokeObjectURL(a.href)
+}
+function importData(input) {
+  const file = input.files && input.files[0]; if (!file) return
+  const r = new FileReader()
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result)
+      if (Array.isArray(d.history)) localStorage.setItem(HISTORY_KEY, JSON.stringify(d.history))
+      if (Array.isArray(d.customPlayers)) localStorage.setItem('kqf_custom_players', JSON.stringify(d.customPlayers))
+      _histCache = null; _archWRCache = null
+      rebuildRoster(); applyRosterToTeam(); render()
+      const n = document.getElementById('history-list'); if (n) renderHistoryList()
+      alert(`Backup imported — ${(d.history || []).length} drafts, ${(d.customPlayers || []).length} custom players.`)
+    } catch { alert('Could not read that backup file.') }
+  }
+  r.readAsText(file)
+  input.value = ''
+}
+window.exportData = exportData; window.importData = importData
 function openHistory() {
   document.getElementById('history-modal').classList.remove('hidden')
   document.getElementById('history-save-panel').classList.add('hidden')
@@ -2717,7 +2744,7 @@ function deleteHistory(idx) {
   const h = historyLoad()
   h.splice(idx, 1)
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch {}
-  _histCache = null   // re-learn from the updated record
+  _histCache = null; _archWRCache = null   // re-learn from the updated record
   renderHistoryList()
 }
 
@@ -2818,6 +2845,9 @@ function getSuggestions() {
   // The enemy's FORMING archetype — draft tools that beat it once they reveal ≥2.
   const enemyProfile = teamProfile(enemySide)
   const enemyArch = enemyProfile.n >= 2 ? compArchetype(enemyProfile) : null
+  // Lean toward comp STYLES our roster actually wins on (once we have a few games).
+  const styleWR = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? archetypeWinRates() : null
+  const useStyle = styleWR && styleWR.total >= 6 && pAlly.length >= 2
 
   for (const c of CHAMP_LIST) {
     if (used.has(c.id)) continue
@@ -2829,6 +2859,12 @@ function getSuggestions() {
     const rgPair = (isOurs && rTrust) ? rosterPairBoost(c.id, pAlly) * (0.5 + 0.5 * rTrust) : 0
     // Draft to BEAT the enemy's forming archetype (peel vs dive, engage vs poke…).
     const archBoost = (isOurs && enemyArch) ? archetypeCounterBoost(c.id, enemyArch) : 0
+    // Bias toward the comp style our roster wins on (this candidate's resulting archetype).
+    let styleBoost = 0
+    if (useStyle) {
+      const r = styleWR.rec[compArchetype(profileOfIds(pAlly.concat(c.id)))]
+      if (r && r.w + r.l >= 2) styleBoost = ((r.w / (r.w + r.l)) - 0.5) * 0.10 * Math.min(1, (r.w + r.l) / 5)
+    }
 
     // PICKS — champ must be able to fill one of the OPEN roles; score it in its
     // strongest open role (so it competes across every role still needed).
@@ -2896,7 +2932,7 @@ function getSuggestions() {
       const laneStrEff = laneStr < 0 ? laneStr * (1 - 0.5 * comfortF) : laneStr
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost + comfortF * 0.03 - cByPen - offRolePen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost + styleBoost + comfortF * 0.03 - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
@@ -3375,6 +3411,13 @@ function timingAdvice(t) {
   return t === 'early' ? 'Force fights & objectives early — close before they scale.'
        : t === 'scaling' ? 'Play safe early, scale up, win the late game.' : ''
 }
+// Concrete power-spike WINDOW for the comp's timing identity (drafting guide:
+// "know your power-spike timing"). Shown in the comp plan.
+function powerSpikeWindow(t) {
+  return t === 'early' ? 'Power spike: <b>levels 2-6 / 1st item (~5-15 min)</b> — force skirmishes & early objectives.'
+       : t === 'scaling' ? 'Power spike: <b>3+ items / 25 min+</b> — survive early, take over the late game.'
+       : 'Power spike: <b>mid game, ~2 items (15-25 min)</b> — strongest in the objective phase.'
+}
 function teamProfile(side) {
   const ids = DS[side].picks.filter(Boolean)
   const champs = ids.map(id => CHAMPS[id]).filter(Boolean)
@@ -3446,6 +3489,46 @@ function compArchetype(p) {
   if (engageTanks >= 1) return 'Engage'
   return 'Flexible'
 }
+// Lightweight comp profile from an arbitrary id list (for classifying a hypothetical
+// or historical comp without touching DS). Covers what compArchetype reads.
+function profileOfIds(ids) {
+  const champs = ids.map(id => CHAMPS[id]).filter(Boolean)
+  const tags = champs.flatMap(c => c.tags)
+  return {
+    n: champs.length,
+    hasTank: tags.includes('Tank'),
+    tanks: tags.filter(t => t === 'Tank').length,
+    assassins: tags.filter(t => t === 'Assassin').length,
+    poke: ids.filter(id => POKE.has(id)).length,
+    engage: ids.filter(id => ENGAGE.has(id)).length,
+    peel: ids.filter(id => PEEL.has(id)).length,
+    cc: ids.filter(id => CC.has(id)).length,
+    dive: ids.filter(id => DIVE.has(id)).length,
+    scaling: ids.filter(id => SCALING.has(id)).length,
+    hyper: champs.some(c => SCALING.has(c.id) && c.tags.includes('Marksman')),
+    frontline: ids.filter(id => tankiness(id) >= 0.6).length,
+    sc: ids.reduce((m, id) => { const s = subclassOf(id); if (s) m[s] = (m[s] || 0) + 1; return m }, {}),
+  }
+}
+// Our win/loss record by comp ARCHETYPE across saved + auto-captured drafts. Tells
+// us which comp styles actually win for THIS roster. Cached with the history.
+let _archWRCache = null
+function archetypeWinRates() {
+  if (_archWRCache) return _archWRCache
+  const rec = {}
+  for (const d of historyLoad()) {
+    if (d.result !== 'win' && d.result !== 'loss') continue
+    const our = d.ourSide || 'blue'
+    const ids = ((d[our] && d[our].picks) || []).map(n => NAME_ID[n]).filter(Boolean)
+    if (ids.length < 4) continue                 // need a near-complete comp to classify
+    const arch = compArchetype(profileOfIds(ids))
+    const r = rec[arch] = rec[arch] || { w: 0, l: 0 }
+    d.result === 'win' ? r.w++ : r.l++
+  }
+  let total = 0; for (const k in rec) total += rec[k].w + rec[k].l
+  _archWRCache = { rec, total }
+  return _archWRCache
+}
 function compNeeds(p) {
   const need = []
   if (!p.hasTank && (p.frontline || 0) === 0) need.push('frontline')
@@ -3492,11 +3575,25 @@ function renderComp() {
     let html = ''
     if (p.n) {
       const arch = compArchetype(p), needs = compNeeds(p)
+      // Our real record on this comp style (from saved + auto-captured games).
+      let styleLine = ''
+      if (mainTab === 'ranked5' || mainTab === 'flex') {
+        const awr = archetypeWinRates()
+        if (awr.total >= 4) {
+          const parts = Object.entries(awr.rec).filter(([, r]) => r.w + r.l >= 1)
+            .sort((a, b) => (b[1].w + b[1].l) - (a[1].w + a[1].l))
+            .map(([k, r]) => `${k} ${r.w}-${r.l}`)
+          const here = awr.rec[arch]
+          styleLine = `<div class="wc-item" style="color:var(--gray-l)">Your record by comp: ${parts.join(' · ')}${here ? ` — you're <b>${here.w}-${here.l}</b> on ${arch}` : ''}</div>`
+        }
+      }
       html += `<div class="wc-block ${usCls}">
         <div class="wc-lbl">Your comp plan</div>
         <div class="wc-item">Building: <b>${arch}</b> · <b>${timingLabel(p.timing)}</b></div>
         <div class="wc-item" style="color:var(--gray-l)">${WINCON[arch]||''} ${timingAdvice(p.timing)}</div>
+        ${p.n >= 3 ? `<div class="wc-item" style="color:var(--gray-l)">${powerSpikeWindow(p.timing)}</div>` : ''}
         <div class="wc-item">${needs.length ? 'Still need: <b>'+needs.join(', ')+'</b>' : 'Core boxes covered ✓ — now pick for power & matchups'}</div>
+        ${styleLine}
       </div>`
     }
     if (e.n) {
@@ -3656,6 +3753,12 @@ init()
 
     <!-- History view panel -->
     <div id="history-view-panel" class="hist-content hidden">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+        <button class="btn" style="font-size:10px;padding:4px 10px" onclick="exportData()" title="Download a backup of your drafts + custom players">⬇ Export backup</button>
+        <button class="btn" style="font-size:10px;padding:4px 10px" onclick="document.getElementById('import-file').click()" title="Restore from a backup file">⬆ Import backup</button>
+        <input id="import-file" type="file" accept="application/json" style="display:none" onchange="importData(this)"/>
+        <span style="color:var(--gray-l);font-size:9px;margin-left:auto">saved drafts + roster live in this browser</span>
+      </div>
       <div id="history-list"></div>
     </div>
   </div>
