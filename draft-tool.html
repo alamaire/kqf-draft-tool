@@ -2650,6 +2650,9 @@ function getSuggestions() {
   const oppOpenRoles = openRolesFor(oppOfForSide)
   // The picking side's emerging timing identity (early / scaling) — for timing-fit.
   const allyTiming = teamTimingProfile(pAlly).timing
+  // The enemy's FORMING archetype — draft tools that beat it once they reveal ≥2.
+  const enemyProfile = teamProfile(enemySide)
+  const enemyArch = enemyProfile.n >= 2 ? compArchetype(enemyProfile) : null
 
   for (const c of CHAMP_LIST) {
     if (used.has(c.id)) continue
@@ -2659,6 +2662,8 @@ function getSuggestions() {
     // Real roster games: reward champs that win alongside our locked allies
     // (influence grows with our game count via rTrust).
     const rgPair = (isOurs && rTrust) ? rosterPairBoost(c.id, pAlly) * (0.5 + 0.5 * rTrust) : 0
+    // Draft to BEAT the enemy's forming archetype (peel vs dive, engage vs poke…).
+    const archBoost = (isOurs && enemyArch) ? archetypeCounterBoost(c.id, enemyArch) : 0
 
     // PICKS — champ must be able to fill one of the OPEN roles; score it in its
     // strongest open role (so it competes across every role still needed).
@@ -2726,7 +2731,7 @@ function getSuggestions() {
       const laneStrEff = laneStr < 0 ? laneStr * (1 - 0.5 * comfortF) : laneStr
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + comfortF * 0.03 - cByPen - offRolePen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost + comfortF * 0.03 - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
@@ -3136,6 +3141,44 @@ const WINCON = {
   'Flexible':      'Flexible so far — lock a clear win condition with your next picks.',
 }
 function timingLabel(t) { return t === 'early' ? 'Early-game' : t === 'scaling' ? 'Scaling' : 'Balanced' }
+// How to BEAT each enemy archetype (drafting-guide "beaten by"): the advice we show
+// and the tool we nudge our suggestions toward when they're building that comp.
+const BEATEN_BY = {
+  'Poke/Siege':    { tip: 'Force a committed 5v5 with hard engage — poke comps fold once you close the gap.', want: 'engage' },
+  'Dive':          { tip: 'Draft peel/disengage + a frontline to body-block — protect your carry through the dive.', want: 'peel' },
+  'Pick':          { tip: 'Group with vision and a tanky frontline so one catch doesn’t end the fight.', want: 'tank' },
+  'Front-to-back': { tip: 'Dive/burst their carry through the peel, or out-poke before they scale.', want: 'dive' },
+  'Engage':        { tip: 'Disengage / flank to punish their commit — don’t group for their combo.', want: 'disengage' },
+  'Flexible':      { tip: '', want: '' },
+}
+// Small score nudge toward champs that supply the tool which beats the enemy's
+// forming archetype (drafting guide Part 6 teamfight counters / Part 10 "beaten by").
+function archetypeCounterBoost(champId, enemyArch) {
+  const spec = BEATEN_BY[enemyArch]; if (!spec || !spec.want) return 0
+  const c = CHAMPS[champId]; if (!c) return 0
+  const tank = c.tags.includes('Tank'), assassin = c.tags.includes('Assassin')
+  switch (spec.want) {
+    case 'engage':    return ENGAGE.has(champId) ? 0.06 : 0
+    case 'peel':      return PEEL.has(champId) ? 0.06 : tank ? 0.03 : 0
+    case 'tank':      return tank ? 0.05 : 0
+    case 'dive':      return (assassin || ENGAGE.has(champId)) ? 0.05 : 0
+    case 'disengage': return (POKE.has(champId) || PEEL.has(champId)) ? 0.05 : 0
+  }
+  return 0
+}
+// Our damage carries that an enemy pick HARD-COUNTERS (draft sanity check #8 — "are
+// any of our carries hard-countered?"). Returns [{champ, by}].
+function counteredCarries(ourSide, enemySide) {
+  const ourIds = DS[ourSide].picks.filter(Boolean)
+  const enemyIds = DS[enemySide].picks.filter(Boolean)
+  const out = []
+  for (const id of ourIds) {
+    if (damageThreat(id) < 0.55) continue                 // only real carries
+    const by = enemyIds.find(e => beatsInLane(e, id))
+    if (by) out.push({ champ: id, by })
+  }
+  return out
+}
 function timingAdvice(t) {
   return t === 'early' ? 'Force fights & objectives early — close before they scale.'
        : t === 'scaling' ? 'Play safe early, scale up, win the late game.' : ''
@@ -3229,6 +3272,11 @@ function renderComp() {
     const verdict = getDraftVerdict()
     let html = ''
     if (verdict) html += `<div class="draft-verdict" style="border-color:${verdict.verdictColor}22;color:${verdict.verdictColor}">${verdict.verdict}</div>`
+    if (mainTab !== 'solo') {
+      const cc = counteredCarries(mySide, otherSide())
+      if (cc.length) html += `<div class="wc-block ${mySide==='blue'?'b':'r'}"><div class="wc-lbl" style="color:#E87A65">⚠ Countered carries</div>${
+        cc.map(x => `<div class="wc-item">${CHAMPS[x.champ].name} is countered by their ${CHAMPS[x.by].name}.</div>`).join('')}</div>`
+    }
     if (bWcs.length) html += `<div class="wc-block b"><div class="wc-lbl">Blue Win Cons</div>${bWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
     if (rWcs.length) html += `<div class="wc-block r"><div class="wc-lbl">Red Win Cons</div>${rWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
     document.getElementById('comp-warnings').innerHTML = html
@@ -3250,7 +3298,16 @@ function renderComp() {
     }
     if (e.n) {
       const earch = compArchetype(e)
-      html += `<div class="wc-block ${themCls}"><div class="wc-lbl">Enemy shaping up as</div><div class="wc-item">${earch} · ${timingLabel(e.timing)}${e.n<5?' (so far)':''}</div></div>`
+      const tip = e.n >= 2 && BEATEN_BY[earch] ? BEATEN_BY[earch].tip : ''
+      html += `<div class="wc-block ${themCls}"><div class="wc-lbl">Enemy shaping up as</div>
+        <div class="wc-item">${earch} · ${timingLabel(e.timing)}${e.n<5?' (so far)':''}</div>
+        ${tip ? `<div class="wc-item" style="color:var(--gray-l)">Beat it: ${tip}</div>` : ''}</div>`
+    }
+    // Draft sanity check #8 — our carries that an enemy pick hard-counters.
+    const cc = counteredCarries(mySide, otherSide())
+    if (cc.length) {
+      html += `<div class="wc-block ${usCls}"><div class="wc-lbl" style="color:#E87A65">⚠ Countered carries</div>${
+        cc.map(x => `<div class="wc-item">${CHAMPS[x.champ].name} is countered by their ${CHAMPS[x.by].name} — peel it, swap, or counter back.</div>`).join('')}</div>`
     }
     document.getElementById('comp-warnings').innerHTML = html ||
       '<div class="empty-msg">Pick champions to see your comp plan build live.</div>'
