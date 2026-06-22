@@ -2963,6 +2963,9 @@ function getSuggestions() {
   // draft). Flex = trial (reward variety / experimentation so we can test things).
   const tryhard = isOurs && mainTab === 'ranked5'
   const trial   = isOurs && mainTab === 'flex'
+  // OUR comp's archetype — so bans can also deny champs that hard-counter our comp
+  // (not just our individual lane picks). Used as a no-scouting ban signal.
+  const ourArchForBan = ourPicks.length >= 2 ? compArchetype(profileOfIds(ourPicks)) : null
 
   for (const c of CHAMP_LIST) {
     if (used.has(c.id)) continue
@@ -3115,14 +3118,18 @@ function getSuggestions() {
       if (threatToUs > 0.4) scoutBoost += 0.12
       scoutNote = `${ec.who[0]} mains it (${ec.games}g, ${ec.wr}%)${threatToUs > 0.4 ? ' and it counters your comp' : ''} — deny their comfort.`
     }
+    // Counters our COMP (not just a lane pick): a champ that beats our forming
+    // archetype is worth denying — a key no-scouting ban signal.
+    const antiComp = ourArchForBan ? archetypeCounterBoost(c.id, ourArchForBan) : 0
     let banScore = threatToUs * protectW + breakBonus + openBonus
-                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6
+                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.2
                  + mBest.score * 0.15 + proBan * 0.16 + prScore * 0.07
     // The enemy already filled every role this champ plays → they can't pick it →
     // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
     if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
     const banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%` : (mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target')
     let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit)
+    if (antiComp >= 0.05 && !scoutNote) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
     if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
     bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
   }
