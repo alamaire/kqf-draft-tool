@@ -2914,6 +2914,10 @@ function getSuggestions() {
   // Lean toward comp STYLES our roster actually wins on (once we have a few games).
   const styleWR = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? archetypeWinRates() : null
   const useStyle = styleWR && styleWR.total >= 6 && pAlly.length >= 2
+  // Mode INTENT: Ranked 5's = tryhard (lean on proven winning signals, safest optimal
+  // draft). Flex = trial (reward variety / experimentation so we can test things).
+  const tryhard = isOurs && mainTab === 'ranked5'
+  const trial   = isOurs && mainTab === 'flex'
 
   for (const c of CHAMP_LIST) {
     if (used.has(c.id)) continue
@@ -3002,9 +3006,16 @@ function getSuggestions() {
       const proPk = proPickScore(c.id)
       // Comfort softens a losing-lane reading (they can play through it).
       const laneStrEff = laneStr < 0 ? laneStr * (1 - 0.5 * comfortF) : laneStr
+      // Mode bias — Ranked 5's reinforces proven win signals; Flex rewards trial picks.
+      let modeBias = 0
+      if (tryhard) modeBias = (Math.max(0, histBonus) + Math.max(0, rgPair) + comfortF * 0.03) * 0.6 + comp * 0.04
+      else if (trial) {
+        if (rolePrefTier(c.id, role) === 'playable') modeBias += 0.05          // a flex/filler worth trialing
+        if (entry && entry.source === 'opgg' && entry.games >= 1 && entry.games <= 6) modeBias += 0.03  // lightly-played → test it
+      }
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost + styleBoost + comfortF * 0.03 - cByPen - offRolePen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
@@ -3289,7 +3300,9 @@ function renderSuggestions() {
       const b = rosterBucket(false), r = b && b.record
       if (r && r.games) tune = ` · <span style="color:var(--green)">tuned to your 5-stack (${r.wins}-${r.games - r.wins})</span>`
     }
-    html += `<div class="sug-role-hdr">${lead} · <b>${label}</b> · patch ${PATCH}${tune}</div>`
+    const intent = sug.isOurs === false ? '' : mainTab === 'ranked5' ? ` · <span style="color:var(--gold)">🏆 tryhard</span>`
+                 : mainTab === 'flex' ? ` · <span style="color:var(--blue)">🧪 trial</span>` : ''
+    html += `<div class="sug-role-hdr">${lead} · <b>${label}</b> · patch ${PATCH}${intent}${tune}</div>`
   }
   items.forEach((s,i) => {
     const c = CHAMPS[s.id]; if(!c) return
