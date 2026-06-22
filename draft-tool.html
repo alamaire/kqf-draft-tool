@@ -500,6 +500,7 @@ const PLAYER_PREFS = {
                             playable: ['Ziggs', 'Sivir', 'Xayah', 'Ezreal', 'Ashe', "Kai'Sa", 'Lucian', 'Yunara'] },
                      mid: { strong: ['Ryze', 'Ziggs'],
                             playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra'] },
+                     exclude: ['Aphelios'],   // op.gg shows old games he doesn't actually play
                      style: 'flex ADC — comfortable on most; flexes mid (Ryze/Ziggs) when LP subs' },
   yoitssam:        { signature: ['Thresh'], strong: ['Braum', 'Rell', 'Leona'], playable: ['Rakan'], style: 'engage / catch supports' },
   // Sub — comes in for ADC; small, focused pool.
@@ -530,6 +531,15 @@ function champPrefRoles(champId) {
   const roles = new Set()
   for (const p of roster) { if (p.active && p.role !== 'sub' && prefTier(p.name, champId, p.role)) roles.add(p.role) }
   return roles
+}
+// User says this player doesn't actually play this champ — suppress it everywhere
+// (overrides op.gg history like stale/off-role games).
+function prefExcluded(playerName, champId) {
+  const pr = PLAYER_PREFS[playerName], name = CHAMPS[champId] && CHAMPS[champId].name
+  return !!(pr && pr.exclude && name && pr.exclude.includes(name))
+}
+function filterExcluded(playerName, pool) {
+  return (pool || []).filter(e => !prefExcluded(playerName, e.championId))
 }
 const EMPTY_SET = new Set()
 
@@ -1252,7 +1262,8 @@ function getActiveDraftOrder() {
 // server-side into champ-data.js and refreshed daily. Seed is only a last resort.
 function matchHistoryPool(name) {
   const live = window.OPGG_DATA && window.OPGG_DATA.pools && window.OPGG_DATA.pools[name.toLowerCase()]
-  return (live && live.length) ? live.map(e => ({ ...e })) : seedPoolFor(name)
+  const pool = (live && live.length) ? live.map(e => ({ ...e })) : seedPoolFor(name)
+  return filterExcluded(name, pool)
 }
 // "Draft Tool" pool — champions THIS player has actually been drafted on in our
 // SAVED games (roster played together), with our real win/loss on them.
@@ -1278,7 +1289,7 @@ function displayPool(p) {
   // mode (Flex vs Ranked 5's), from Riot. Strictly mode-specific (empty if none yet).
   if (poolView === 'drafttool') {
     const b = rosterBucket(true)
-    return (b && b.pools && b.pools[p.name]) ? b.pools[p.name] : []
+    return filterExcluded(p.name, (b && b.pools && b.pools[p.name]) || [])
   }
   return p.pool
 }
@@ -2262,6 +2273,7 @@ function bestFamiliarity(champId, role) {
   for (const p of roster) {
     if (!p.active || p.role === 'sub') continue
     if (role && p.role !== role) continue   // only this role's player counts
+    if (prefExcluded(p.name, champId)) continue   // user says they don't play it
     const rg = rosterGameEntry(p.name, champId)
     const og = p.pool.find(e => e.championId === champId)
     let entry = null, f = 0
