@@ -490,7 +490,7 @@ const KQF_ROSTER = [
 // signature = standout best · strong = clearly good · playable = can play if needed.
 // Keyed by lowercase roster name; values are champion display names.
 const PLAYER_PREFS = {
-  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'] },
+  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'], exclude: ['Ambessa'] },
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
                      playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
   styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
@@ -542,6 +542,19 @@ function filterExcluded(playerName, pool) {
   return (pool || []).filter(e => !prefExcluded(playerName, e.championId))
 }
 const EMPTY_SET = new Set()
+// Champs whose game-changing (usually AoE engage/teamfight) ult Sylas loves to steal —
+// picking one into an enemy Sylas hands him a second one. A specific COMP counter.
+const SYLAS_STEAL = new Set([54,516,32,85,3,113,526,154,57,12,61,30,90,518,150,33,89,234,777])
+// Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
+function kitCounterPenalty(champId, enemyPicks) {
+  let pen = 0
+  if (enemyPicks.includes(517) && SYLAS_STEAL.has(champId)) pen += 0.12   // Sylas steals our key ult
+  return pen
+}
+// How much lane counters matter by role: SOLO lanes (top/mid) are where counterpicks
+// decide games; ADC is hard to counter (often first-picked); jungle picks flex freely
+// and support matters least. Scales counter weight + counter penalty + blind-exposure.
+const LANE_COUNTER_W = { top: 1.0, mid: 1.0, adc: 0.45, support: 0.4, jungle: 0.2 }
 
 // Baseline champion pools fetched from each player's OP.GG (Season 2026).
 // Shown immediately so the roster is never empty; a live refresh enhances
@@ -2246,6 +2259,13 @@ function rosterTrust() {
 }
 // A player's go-to champ in our 5-man games (most-played, ≥2 games) — what bans
 // should protect. null if no roster games for them in the current mode.
+// How much OUR roster values a champ (max familiarity across our players/roles) —
+// drives the "what the enemy would ban against us" prediction.
+function ourChampValue(champId) {
+  let best = 0
+  for (const r of ALL_ROLES) { const f = bestFamiliarity(champId, r); if (f && f.score > best) best = f.score }
+  return best
+}
 // The player's vouched signature champ id (role-aware), if any.
 function playerSignature(playerKey) {
   const pr = PLAYER_PREFS[playerKey]; if (!pr) return null
@@ -2959,6 +2979,9 @@ function getSuggestions() {
   const onClock = DS.step < order.length ? order[DS.step] : null
   const forSide = onClock ? onClock.team : mySide
   const isOurs  = forSide === mySide
+  // When it's the ENEMY's ban on the clock, predict what THEY would ban against us
+  // (deny our comfort/strengths) so we can read their thinking.
+  const enemyBanTurn = onClock && onClock.type === 'ban' && !isOurs
   const pAlly  = isOurs ? ourPicks : theirPicks     // picking side's own picks
   const pEnemy = isOurs ? theirPicks : ourPicks     // the side they're up against
   const roles  = openRolesFor(forSide)
@@ -3061,12 +3084,17 @@ function getSuggestions() {
                      : (entry && entry.source === 'roster' && entry.rosterGames >= 2 && entry.winRate >= 55) ? 0.5 : 0
       // Role-pair synergy (bot duo / jungle-support / jungle-mid) with our locked picks.
       const syn = rolePairSynergy(c.id, role, allyByRole).score
-      const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy, role).length * 0.08) * (1 - 0.5 * comfortF)
+      const laneW = LANE_COUNTER_W[role] ?? 0.6
 
-      // #1 LANE MATCHUP — the single biggest factor once the lane opponent is known.
+      // #1 LANE MATCHUP — counterpicking, biggest in SOLO lanes. The lane opponent is the
+      // enemy in OUR role's lane (assigned role), so an enemy jungle Wukong never figures
+      // into a top matchup.
       const laneOpp = laneOpponent(role, enemySide)
       const lane = laneMatchupScore(c.id, laneOpp)        // null until opp revealed
-      // #2 the OTHER enemy champs (everyone except the lane opp) + comp fit.
+      // Counter penalty comes ONLY from our actual lane opponent (not any off-lane champ),
+      // scaled by how counterable the lane is + softened by comfort.
+      const cByPen = (laneOpp && beatsInLane(laneOpp, c.id)) ? 0.16 * laneW * (1 - 0.5 * comfortF) : 0
+      // #2 the OTHER enemy champs (everyone except the lane opp) — comp-level only, light.
       const otherEnemies = pEnemy.filter(id => id !== laneOpp)
       const others = otherEnemies.length ? counterScore(c, otherEnemies) : 0.5
 
@@ -3077,9 +3105,10 @@ function getSuggestions() {
       let timing = 0
       if (exposed) {
         // Data-driven first-pickability: reward safe/flexible openers, punish
-        // easily-countered ones (from the real op.gg matchup table + role spread).
+        // easily-countered ones — but only as much as the lane is counterable (ADC is
+        // safe to first-pick, jungle flexes, so little exposure risk there).
         const opener = blindSafety(c.id, role).score * 0.65 + champFlex(c.id) * 0.35
-        timing += (opener - 0.5) * 0.30
+        timing += (opener - 0.5) * 0.30 * laneW
       }
       // Off-role discount so a champ out of its main role can't beat a comparable
       // champ playing where it actually belongs.
@@ -3089,8 +3118,8 @@ function getSuggestions() {
       //   COUNTERS = lane matchup + other enemies, grows as they reveal
       const wComp   = 0.15 + 0.06 * (aC / 5)        // team comp fit
       const wSyn    = 0.10 + 0.04 * (aC / 5)        // synergy / duos
-      const wLane   = laneOpp ? 0.24 : 0            // direct lane COUNTER — heavily weighted
-      const wOthers = 0.16 * (otherEnemies.length / 4)   // counters vs the rest of their team
+      const wLane   = laneOpp ? 0.28 * laneW : 0    // direct lane COUNTER — heavy in solo lanes, light in bot/jungle
+      const wOthers = 0.08 * (otherEnemies.length / 4)   // off-lane counters: minor (comp counters handled separately)
       // itero TIMING fit — reward picks matching the team's early/scaling identity.
       const myCurve = laneOutlook(c.id, role).curve
       let timingFit = 0
@@ -3108,9 +3137,10 @@ function getSuggestions() {
         if (rolePrefTier(c.id, role) === 'playable') modeBias += 0.05          // a flex/filler worth trialing
         if (entry && entry.source === 'opgg' && entry.games >= 1 && entry.games <= 6) modeBias += 0.03  // lightly-played → test it
       }
+      const kitPen = isOurs ? kitCounterPenalty(c.id, pEnemy) : 0   // e.g. our big-ult pick into enemy Sylas
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
@@ -3179,7 +3209,7 @@ function getSuggestions() {
     // Sub tells you WHY it's a ban target (enemy's personal record if scouted; else the
     // dominant reason) — not the generic solo-queue WR.
     const sr = struggle > 0 ? historyStats().enemy[CHAMPS[c.id].name] : null
-    const banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%`
+    let banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%`
       : struggle > 0 ? `you're ${sr.w}-${sr.l} vs it`
       : antiComp >= 0.05 ? 'counters your comp'
       : threatToUs > 0.4 ? 'counters your picks'
@@ -3189,6 +3219,15 @@ function getSuggestions() {
     if (antiComp >= 0.05 && !scoutNote) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
     if (struggle > 0) banReason = `Your roster is ${sr.w}-${sr.l} against it — a recurring problem. ` + (banReason || '')
     if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
+    // ENEMY BAN PREDICTION — flip to what THEY would ban to deny US (our comfort/strengths).
+    if (enemyBanTurn) {
+      const ourVal = ourChampValue(c.id)
+      banScore = ourVal * 0.7 + mBest.score * 0.18
+      banSub = ourVal >= 0.5 ? 'your comfort' : 'strong vs you'
+      banReason = ourVal >= 0.4
+        ? `Your roster is strong on this — expect them to ban it to deny you.`
+        : `A strong meta pick they may remove pre-emptively.`
+    }
     bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
   }
 
@@ -3198,7 +3237,7 @@ function getSuggestions() {
   // strong recommendation, not "weak here". (Absolute scores compress as more
   // signals blend in, so a fixed threshold would mislabel the best picks.)
   assignRelativeVerdicts(picks)
-  return { picks: picks.slice(0, 10), bans: bans.slice(0, 8), roles: useRoles, isOurs, forSide }
+  return { picks: picks.slice(0, 10), bans: bans.slice(0, 8), roles: useRoles, isOurs, forSide, enemyBanTurn }
 }
 
 // Label each pick by how it stands relative to the best suggestion in the list.
@@ -3407,7 +3446,9 @@ function renderSuggestions() {
   let html = ''
   // Header reflects the current phase
   if (isBan)
-    html += `<div class="sug-role-hdr">🚫 <b>Ban phase</b> · biggest threats · patch ${PATCH}</div>`
+    html += sug.enemyBanTurn
+      ? `<div class="sug-role-hdr">🔮 <b>Enemy would ban</b> · what they'd take from you · patch ${PATCH}</div>`
+      : `<div class="sug-role-hdr">🚫 <b>Ban phase</b> · biggest threats · patch ${PATCH}</div>`
   else {
     const rolesArr = sug.roles || []
     const label = rolesArr.length === 1 ? rolesArr[0].toUpperCase()
