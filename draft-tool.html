@@ -493,25 +493,42 @@ const PLAYER_PREFS = {
   thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'] },
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
                      playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
+  styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
+                     playable: ['Ahri', 'Gragas', 'Galio', 'Malphite', 'Cassiopeia', 'Fizz'], style: 'struggles in tough lanes — prefers safe/blind mids' },
+  // Role-keyed: MonkeyDAdam mains ADC but flexes MID when LP Fisherman subs in.
+  monkeydadam:     { adc: { signature: ['Miss Fortune', 'Jinx'], strong: ['Seraphine'],
+                            playable: ['Ziggs', 'Sivir', 'Xayah', 'Ezreal', 'Ashe', "Kai'Sa", 'Lucian', 'Yunara'] },
+                     mid: { strong: ['Ryze', 'Ziggs'],
+                            playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra'] },
+                     style: 'flex ADC — comfortable on most; flexes mid (Ryze/Ziggs) when LP subs' },
+  yoitssam:        { signature: ['Thresh'], strong: ['Braum', 'Rell', 'Leona'], playable: ['Rakan'], style: 'engage / catch supports' },
+  // Sub — comes in for ADC; small, focused pool.
+  'lp fisherman':  { signature: ['Smolder', 'Ziggs'], playable: ['Corki'], style: 'sub — plays ADC' },
 }
-function prefTier(playerName, champId) {
+const PREF_ROLE_KEYS = ['top', 'jungle', 'mid', 'adc', 'support']
+function prefTier(playerName, champId, role) {
   const pr = PLAYER_PREFS[playerName]; if (!pr) return null
+  // Role-keyed prefs (flex players like MonkeyDAdam) use the set for their CURRENT
+  // role; flat prefs apply in whatever role the player is in.
+  const roleKeyed = PREF_ROLE_KEYS.some(r => pr[r])
+  const set = roleKeyed ? (role ? pr[role] : null) : pr
+  if (!set) return null
   const name = CHAMPS[champId] && CHAMPS[champId].name; if (!name) return null
-  if ((pr.signature || []).includes(name)) return 'signature'
-  if ((pr.strong || []).includes(name)) return 'strong'
-  if ((pr.playable || []).includes(name)) return 'playable'
+  if ((set.signature || []).includes(name)) return 'signature'
+  if ((set.strong || []).includes(name)) return 'strong'
+  if ((set.playable || []).includes(name)) return 'playable'
   return null
 }
 // The pref tier for whoever currently plays `role` (so a vouched pick is honored in
 // that role even when champRoles/op.gg wouldn't list it there).
 function rolePrefTier(champId, role) {
   const p = roster.find(p => p.active && p.role !== 'sub' && p.role === role)
-  return p ? prefTier(p.name, champId) : null
+  return p ? prefTier(p.name, champId, role) : null
 }
 // Roles in which SOME active roster player vouches for this champ (expands eligibility).
 function champPrefRoles(champId) {
   const roles = new Set()
-  for (const p of roster) { if (p.active && p.role !== 'sub' && prefTier(p.name, champId)) roles.add(p.role) }
+  for (const p of roster) { if (p.active && p.role !== 'sub' && prefTier(p.name, champId, p.role)) roles.add(p.role) }
   return roles
 }
 const EMPTY_SET = new Set()
@@ -2228,7 +2245,7 @@ function bestFamiliarity(champId, role) {
     }
     // Human intel: a vouched pick gets a familiarity floor + nudge (works even with
     // no game data, since the team is telling us they play it). Doesn't override data.
-    const tier = prefTier(p.name, champId)
+    const tier = prefTier(p.name, champId, role)
     if (tier) {
       const PT = { signature: [0.80, 0.10], strong: [0.58, 0.07], playable: [0.35, 0.04] }[tier]
       f = Math.min(1, Math.max(f, PT[0]) + PT[1])
