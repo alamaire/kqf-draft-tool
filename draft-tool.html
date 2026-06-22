@@ -544,7 +544,7 @@ function filterExcluded(playerName, pool) {
 const EMPTY_SET = new Set()
 // Champs whose game-changing (usually AoE engage/teamfight) ult Sylas loves to steal —
 // picking one into an enemy Sylas hands him a second one. A specific COMP counter.
-const SYLAS_STEAL = new Set([54,516,32,85,3,113,526,154,57,12,61,30,90,518,150,33,89,234,777])
+const SYLAS_STEAL = new Set([54,516,32,85,3,113,526,154,57,12,61,30,90,518,150,33,89])
 // Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
 function kitCounterPenalty(champId, enemyPicks) {
   let pen = 0
@@ -2555,9 +2555,12 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
   let ctx = ''
   const laneOppName = laneOppId ? CHAMPS[laneOppId]?.name : null
   const laneTag = (laneRole || '').toUpperCase()
+  // Sylas steal is the dominant read when it applies — flag it first.
+  if (enemyPicks.includes(517) && SYLAS_STEAL.has(champ.id))
+    ctx = `Risky into their Sylas — he'll steal ${champ.name}'s ult for a game-changing second cast. Ban Sylas or pick something else.`
   // LANE OPPONENT matchup is the ONLY 1v1 matchup we talk about — cross-lane
   // "favorable into X" noise is intentionally dropped (only lane + team-comp).
-  if (laneOppId && beatsInLane(champ.id, laneOppId))
+  else if (laneOppId && beatsInLane(champ.id, laneOppId))
     ctx = `Beats ${laneOppName} in the ${laneTag} matchup — a favorable lane.`
   else if (laneOppId && beatsInLane(laneOppId, champ.id))
     ctx = `Loses the ${laneTag} matchup to ${laneOppName} — needs jungle help or a swap.`
@@ -3186,6 +3189,10 @@ function getSuggestions() {
     // Protecting our locked picks grows as we commit more of our comp.
     const proBan = proBanScore(c.id)
     const protectW = 0.30 + 0.18 * (ourPicks.length / 5)   // counters-to-our-picks weighted heavily
+    // Protect a locked big-ult pick: if we've committed a Sylas-steal champ (e.g. Malphite),
+    // banning Sylas is high value so they can't steal it.
+    const stolenAlly = c.id === 517 ? ourPicks.find(a => SYLAS_STEAL.has(a)) : null
+    const sylasProtect = stolenAlly ? 0.30 : 0
     // TARGET-BAN: if we scouted a named enemy who mains this champ, prioritise denying
     // it — scaled by their games + win rate, with a bonus when it also breaks our comp.
     const ec = enemyComfort(c.id)
@@ -3201,7 +3208,7 @@ function getSuggestions() {
     // Learned STRUGGLE: champs our roster keeps losing to (from history) are ban-worthy.
     const struggle = (mainTab === 'ranked5' || mainTab === 'flex') ? struggleBanBoost(c.id) : 0
     let banScore = threatToUs * protectW + breakBonus + openBonus
-                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.8 + struggle
+                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.8 + struggle + sylasProtect
                  + mBest.score * 0.07 + proBan * 0.13 + prScore * 0.04   // WR is a light baseline; counters lead
     // The enemy already filled every role this champ plays → they can't pick it →
     // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
@@ -3216,7 +3223,8 @@ function getSuggestions() {
       : proBan >= 0.5 ? 'high meta priority'
       : 'meta threat'
     let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit)
-    if (antiComp >= 0.05 && !scoutNote) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
+    if (sylasProtect) { banReason = `Steals your ${CHAMPS[stolenAlly].name}'s ult — ban it to protect your engage.`; banSub = `protects ${CHAMPS[stolenAlly].name}` }
+    if (antiComp >= 0.05 && !scoutNote && !sylasProtect) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
     if (struggle > 0) banReason = `Your roster is ${sr.w}-${sr.l} against it — a recurring problem. ` + (banReason || '')
     if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
     // ENEMY BAN PREDICTION — flip to what THEY would ban to deny US (our comfort/strengths).
