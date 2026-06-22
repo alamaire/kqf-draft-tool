@@ -2623,6 +2623,10 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
     const bs = blindSafety(champ.id, laneRole)
     ctx = `Safe blind pick — only ${bs.hardCounters} hard counter${bs.hardCounters === 1 ? '' : 's'} in the ${laneTag} pool, so it's hard to punish on sight.`
   }
+  else if (!enemyPicks.length && (laneRole === 'top' || laneRole === 'mid') && blindSafety(champ.id, laneRole).hardCounters >= 3) {
+    const bs = blindSafety(champ.id, laneRole)
+    ctx = `Risky to blind — ${bs.hardCounters} hard counters in the ${laneTag} pool; first-picking it lets them counter the lane. Open a safer champ or a different role.`
+  }
   // No situational angle → fall back to an ACCURATE champion-identity descriptor
   // (real damage type / threat / tankiness) rather than a generic or wrong line.
   else
@@ -3136,13 +3140,19 @@ function getSuggestions() {
       // the opponent can still answer this lane, the pick is EXPOSED: reward
       // flexible & blind-safe champs, punish fragile/narrow ones we'd telegraph.
       const exposed = !laneOpp && oppPicksLeft > 0 && oppOpenRoles.includes(role)
-      let timing = 0
+      let timing = 0, blindRisk = 0
       if (exposed) {
         // Data-driven first-pickability: reward safe/flexible openers, punish
         // easily-countered ones — but only as much as the lane is counterable (ADC is
         // safe to first-pick, jungle flexes, so little exposure risk there).
-        const opener = blindSafety(c.id, role).score * 0.65 + champFlex(c.id) * 0.35
+        const bs = blindSafety(c.id, role)
+        const opener = bs.score * 0.65 + champFlex(c.id) * 0.35
         timing += (opener - 0.5) * 0.30 * laneW
+        // HARD-COUNTER avoidance on a blind/first pick: a champ with real hard counters
+        // shouldn't be revealed early (the enemy just counter-picks the lane) — applies
+        // EVEN to comfort picks, so a safer champ or a safer role gets prioritised.
+        blindRisk = Math.min(0.22, bs.hardCounters * 0.04) * laneW
+        timing -= blindRisk
       }
       // Off-role discount so a champ out of its main role can't beat a comparable
       // champ playing where it actually belongs.
