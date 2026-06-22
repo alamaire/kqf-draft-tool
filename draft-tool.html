@@ -1289,7 +1289,9 @@ const PICKS_ONLY_ORDER = [
 ]
 
 function getActiveDraftOrder() {
-  return mainTab === 'ranked5' ? DRAFT_ORDER : PICKS_ONLY_ORDER
+  // Solo removed — Flex and Ranked 5's are both structured team drafts WITH bans
+  // (so live bans auto-fill and ban suggestions show in both).
+  return DRAFT_ORDER
 }
 
 // Roster state — one entry per KQF member
@@ -1740,10 +1742,11 @@ function switchMainTab(tab) {
   // Suggestions follow the draft phase automatically — no manual Picks/Bans tabs.
   document.getElementById('sug-tabs').classList.add('hidden')
 
-  // Bans exist only in Ranked 5's (always on). Solo & Flex are picks-only.
+  // Both Flex and Ranked 5's have a structured ban phase (auto-fills live + shows ban
+  // suggestions). The old manual ban-toggle UI stays hidden.
   document.getElementById('bans-toggle-row').style.display = 'none'
   document.getElementById('ban-mode-bar').classList.remove('visible')
-  bansEnabled = (tab === 'ranked5')
+  bansEnabled = (tab !== 'solo')
   banSideActive = null
   document.getElementById('bans-toggle').className = bansEnabled ? 'toggle-btn on' : 'toggle-btn off'
 
@@ -2087,8 +2090,8 @@ function selectChamp(id, evt) {
     return
   }
 
-  // Solo/flex ban-fill mode
-  if (mainTab !== 'ranked5' && bansEnabled && banSideActive) {
+  // Manual ban-fill mode (retired — Solo removed; structured draft handles bans)
+  if (mainTab === 'solo' && bansEnabled && banSideActive) {
     const team = DS[banSideActive]
     const slot = team.bans.indexOf(null)
     if (slot === -1) return
@@ -3489,12 +3492,10 @@ function renderPhase() {
   }
   const step = order[DS.step]
   const isBanStep = step.type === 'ban'
-  const phaseNum = mainTab === 'ranked5'
-    ? (DS.step < 6 ? 1 : DS.step < 12 ? 1 : 2)
-    : 1
+  const phaseNum = DS.step < 12 ? 1 : 2
   const b = document.getElementById('phase-badge')
-  // For solo/flex with bans on: show "BAN FILL" while in ban mode, else PICK PHASE
-  if (mainTab !== 'ranked5' && bansEnabled && banSideActive) {
+  // Manual ban-fill mode is retired (Solo removed) — structured draft handles bans.
+  if (mainTab === 'solo' && bansEnabled && banSideActive) {
     b.textContent = `FILLING ${banSideActive.toUpperCase()} BANS`
     b.className = 'phase-badge ban'
     document.getElementById('turn-lbl').textContent = 'Click champions below to ban'
@@ -3510,7 +3511,7 @@ function renderTeam(side) {
   const team = DS[side]
   const _order = getActiveDraftOrder()
   const step = DS.step < _order.length ? _order[DS.step] : null
-  const canClearBans = mainTab !== 'ranked5' && bansEnabled
+  const canClearBans = mainTab === 'solo' && bansEnabled   // structured draft (no manual clear)
   const isBanSideActive = banSideActive === side
   let html = ''
   if (mainTab === 'solo') {
@@ -3575,12 +3576,10 @@ function renderTeam(side) {
 
 function renderSuggestions() {
   const sug = getSuggestions()
-  // In Ranked 5's, follow the live draft phase (ban vs pick) automatically.
+  // Follow the live draft phase (ban vs pick) automatically — both Flex and Ranked 5's.
   let effTab = 'picks'
-  if (mainTab === 'ranked5') {
-    const order = getActiveDraftOrder()
-    if (DS.step < order.length && order[DS.step].type === 'ban') effTab = 'bans'
-  }
+  const order = getActiveDraftOrder()
+  if (DS.step < order.length && order[DS.step].type === 'ban') effTab = 'bans'
   const items = effTab==='bans' ? sug.bans : sug.picks
   const isBan = effTab==='bans'
   let html = ''
