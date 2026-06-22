@@ -2652,14 +2652,21 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
 }
 
 // Situational ban reasoning — WHY removing this helps your comp right now.
-function generateBanReason(champ, allyPicks, enemyPicks, isEnemyWant, comfortHit) {
+function generateBanReason(champ, allyPicks, enemyPicks, isEnemyWant, comfortHit, ourByRole) {
   const allyTags = allyPicks.flatMap(id => CHAMPS[id]?.tags || [])
   const backline = allyTags.filter(t => t === 'Mage' || t === 'Marksman').length
 
-  // Does this ban target hard-counter something you've already locked?
-  const beatsOurs = countersNamed(champ.id, allyPicks)
+  // Does this ban target hard-counter a locked pick IN ITS LANE? Role-aware so we don't
+  // claim e.g. "counters your Elise" (jungle) or "your GP" with a champ that's not in that lane.
+  const beatsOurs = []
+  for (const r in (ourByRole || {})) {
+    const aId = ourByRole[r]
+    if (champRoles(champ.id).has(r) && (LANE_COUNTER_W[r] ?? 0.6) >= 0.4 && beatsInLane(champ.id, aId)) {
+      const nm = CHAMPS[aId] && CHAMPS[aId].name; if (nm) beatsOurs.push(nm)
+    }
+  }
   if (beatsOurs.length)
-    return `Hard-counters your ${joinNames(beatsOurs.slice(0, 2))} — banning it protects a pick you've already committed.`
+    return `Hard-counters your ${joinNames(beatsOurs.slice(0, 2))} in lane — banning it protects a pick you've already committed.`
 
   // "Ban what the enemy wants next" — synergizes with their locked picks.
   if (isEnemyWant && enemyPicks && enemyPicks.length) {
@@ -3036,6 +3043,10 @@ function getSuggestions() {
   // OUR comp's archetype — so bans can also deny champs that hard-counter our comp
   // (not just our individual lane picks). Used as a no-scouting ban signal.
   const ourArchForBan = ourPicks.length >= 2 ? compArchetype(profileOfIds(ourPicks)) : null
+  // Our locked picks by ASSIGNED role — so ban-protect only treats a champ as countering
+  // our pick when it actually laneS against it (no jungle/cross-lane false counters).
+  const ourByRole = {}
+  DS[mySide].roles.forEach((r, i) => { if (DS[mySide].picks[i]) ourByRole[r] = DS[mySide].picks[i] })
 
   for (const c of CHAMP_LIST) {
     if (used.has(c.id)) continue
@@ -3163,9 +3174,14 @@ function getSuggestions() {
     const threatToUs = counterScore(c, ourPicks)
     const mBest = metaForRole(c.id, null)
     const prScore = mBest.pr !== null ? Math.min(1, mBest.pr / 15) : 0.35
-    // Hard-counters a champion we've already locked → top deny priority
-    const breaksUs = ourPicks.filter(a => beatsInLane(c.id, a)).length
-    const breakBonus = Math.min(0.22, breaksUs * 0.12)
+    // Hard-counters a champion we've locked IN ITS LANE → top deny priority. Role-aware:
+    // only if this champ plays that lane (Vayne never "counters" our mid GP) and the lane
+    // is counter-relevant (jungle counters barely matter, scaled by LANE_COUNTER_W).
+    let breakVal = 0
+    for (const r in ourByRole) {
+      if (champRoles(c.id).has(r) && beatsInLane(c.id, ourByRole[r])) breakVal += 0.16 * (LANE_COUNTER_W[r] ?? 0.6)
+    }
+    const breakBonus = Math.min(0.24, breakVal)
     // Denying a strong option in a role the enemy STILL needs is the point of a ban.
     const openBonus = (theirPicks.length >= 1 && canBePicked) ? 0.12 : 0
     // THE HIDDEN BAN RULE — "ban what the enemy WANTS next". A champ that synergizes
@@ -3222,7 +3238,7 @@ function getSuggestions() {
       : threatToUs > 0.4 ? 'counters your picks'
       : proBan >= 0.5 ? 'high meta priority'
       : 'meta threat'
-    let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit)
+    let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit, ourByRole)
     if (sylasProtect) { banReason = `Steals your ${CHAMPS[stolenAlly].name}'s ult — ban it to protect your engage.`; banSub = `protects ${CHAMPS[stolenAlly].name}` }
     if (antiComp >= 0.05 && !scoutNote && !sylasProtect) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
     if (struggle > 0) banReason = `Your roster is ${sr.w}-${sr.l} against it — a recurring problem. ` + (banReason || '')
