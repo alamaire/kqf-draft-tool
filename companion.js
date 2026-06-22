@@ -20,6 +20,37 @@ const LOCKFILES = [
 ];
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 const POS2ROLE = { top: 'top', jungle: 'jungle', middle: 'mid', bottom: 'adc', utility: 'support' };
+const SCOUT_UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36' };
+
+// Parse a summoner's ranked champion pool (games/wins/WR per champ) off their op.gg
+// page — used to SCOUT enemy summoners and target-ban their comfort champs.
+function parsePool(html) {
+  const u = html.replace(/\\"/g, '"');
+  const out = [], seen = new Set();
+  const re = /"match_up_stats":/g; let m;
+  while ((m = re.exec(u))) {
+    const head = u.slice(Math.max(0, m.index - 800), m.index);
+    const hm = [...head.matchAll(/\{"id":(\d+),"play":(\d+),"win":(\d+),"lose":(\d+),"win_rate":([\d.]+)/g)];
+    if (!hm.length) continue;
+    const x = hm[hm.length - 1], id = +x[1];
+    if (id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ championId: id, games: +x[2], wins: +x[3], winRate: Math.round(+x[5]) });
+  }
+  return out.sort((a, b) => b.games - a.games);
+}
+const _scoutCache = {};   // "name#tag" -> { t, pool }
+async function scoutSummoner(name, tag) {
+  const key = (name + '#' + tag).toLowerCase();
+  const c = _scoutCache[key];
+  if (c && Date.now() - c.t < 30 * 60 * 1000) return c.pool;   // 30-min cache
+  const url = `https://op.gg/summoners/na/${encodeURIComponent(name)}-${encodeURIComponent(tag || 'NA1')}/champions`;
+  const r = await fetch(url, { headers: SCOUT_UA });
+  if (!r.ok) return null;
+  const pool = parsePool(await r.text());
+  _scoutCache[key] = { t: Date.now(), pool };
+  return pool;
+}
 
 function lcuAuth() {
   for (const f of LOCKFILES) {
@@ -43,6 +74,7 @@ function parseSession(s) {
     championId: c.championId || 0,
     role: POS2ROLE[c.assignedPosition] || null,
     name: c.gameName || c.summonerName || '',     // enemy names are usually hidden (empty) in ranked
+    tag: c.tagLine || '',                          // tagline for op.gg scouting (when visible)
   })).filter(p => p.championId || p.role);
   const teams = {};
   teams[ourSide] = { picks: teamPicks(s.myTeam), bans: (s.bans && s.bans.myTeamBans || []).filter(Boolean) };
@@ -165,6 +197,14 @@ http.createServer(async (req, res) => {
   if (url === '/api/lcu') {
     const data = await champSelect();
     return J(res, 200, data);
+  }
+  // Scout an enemy summoner's op.gg ranked pool (for target-ban suggestions).
+  if (url === '/api/scout') {
+    const q = new URLSearchParams(req.url.split('?')[1] || '');
+    const name = (q.get('name') || '').trim(), tag = (q.get('tag') || 'NA1').trim();
+    if (!name) return J(res, 400, { ok: false, error: 'name required' });
+    try { const pool = await scoutSummoner(name, tag); return J(res, 200, { ok: !!pool, name, tag, pool: pool || [] }); }
+    catch (e) { return J(res, 200, { ok: false, error: String(e.message || e), pool: [] }); }
   }
   // Paste a fresh Riot key → run the roster re-pull live (key only as an env var to
   // the child process; never written to disk; roster-data.js output is pure stats).

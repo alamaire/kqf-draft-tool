@@ -1377,12 +1377,44 @@ async function pollLive() {
   try {
     const r = await fetch('/api/lcu', { cache: 'no-store' }); if (!r.ok) throw 0
     const s = await r.json()
-    if (s.active) { applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.phase || 'champ select'), 'armed') }
+    if (s.active) { applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.phase || 'champ select'), 'armed'); scoutFromLive(s) }
     else setLiveStatus('live ready · ' + (s.reason || 'waiting'), 'on')
   } catch {
     if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null }
     const el = document.getElementById('live-status'); if (el) el.className = 'hidden'
   }
+}
+// ── Enemy scouting (Ranked 5's, when summoner names are visible in champ select) ──
+// Pulls each enemy summoner's op.gg ranked pool via the companion and aggregates a
+// comfort map (championId -> games/wins/who) used to TARGET-BAN their best champs.
+let _scout = { comfort: {}, fetched: new Set() }
+function resetScout() { _scout = { comfort: {}, fetched: new Set() } }
+async function scoutEnemy(name, tag) {
+  const key = (name || '').toLowerCase(); if (!key || _scout.fetched.has(key)) return
+  _scout.fetched.add(key)
+  try {
+    const r = await fetch(`/api/scout?name=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag || 'NA1')}`)
+    const d = await r.json()
+    if (!d || !d.ok || !Array.isArray(d.pool)) return
+    for (const e of d.pool) {
+      if (e.games < 3) continue
+      const m = _scout.comfort[e.championId] = _scout.comfort[e.championId] || { games: 0, wins: 0, who: [] }
+      m.games += e.games; m.wins += e.wins; if (!m.who.includes(name)) m.who.push(name)
+    }
+    render()   // refresh ban suggestions with the new intel
+  } catch { /* companion/op.gg hiccup — ignore */ }
+}
+// Scout the enemy team's named summoners from a live champ-select payload.
+function scoutFromLive(s) {
+  if (!_companionPresent || !s || !s.teams) return
+  const enemySide = s.ourSide === 'blue' ? 'red' : 'blue'
+  const t = s.teams[enemySide]; if (!t) return
+  for (const p of (t.picks || [])) if (p.name && p.name.length > 2) scoutEnemy(p.name, p.tag)
+}
+// Comfort/threat of banning champ `cid`: how much the enemy mains it (+ who).
+function enemyComfort(cid) {
+  const m = _scout.comfort[cid]; if (!m || m.games < 5) return null
+  return { games: m.games, wins: m.wins, wr: Math.round(m.wins / m.games * 100), who: m.who }
 }
 function startLive() {
   // The companion exposes /api/lcu; the static github.io site doesn't → stays manual.
@@ -2095,6 +2127,7 @@ window.undoLast = undoLast
 function resetDraft() {
   banSideActive = null
   _pendingAssign = null
+  if (typeof resetScout === 'function') resetScout()   // clear scouted enemies for a fresh draft
   closeSlotPicker()
   document.getElementById('bsb-blue')?.classList.remove('active')
   document.getElementById('bsb-red')?.classList.remove('active')
@@ -3061,14 +3094,25 @@ function getSuggestions() {
     // Protecting our locked picks grows as we commit more of our comp.
     const proBan = proBanScore(c.id)
     const protectW = 0.22 + 0.14 * (ourPicks.length / 5)
+    // TARGET-BAN: if we scouted a named enemy who mains this champ, prioritise denying
+    // it — scaled by their games + win rate, with a bonus when it also breaks our comp.
+    const ec = enemyComfort(c.id)
+    let scoutBoost = 0, scoutNote = ''
+    if (ec) {
+      scoutBoost = Math.min(0.30, ec.games / 100) + Math.max(0, (ec.wr - 50) / 100)
+      if (threatToUs > 0.4) scoutBoost += 0.12
+      scoutNote = `${ec.who[0]} mains it (${ec.games}g, ${ec.wr}%)${threatToUs > 0.4 ? ' and it counters your comp' : ''} — deny their comfort.`
+    }
     let banScore = threatToUs * protectW + breakBonus + openBonus
-                 + enemyWants * 0.20 + punishesComfort
+                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6
                  + mBest.score * 0.15 + proBan * 0.16 + prScore * 0.07
     // The enemy already filled every role this champ plays → they can't pick it →
     // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
     if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
-    const banSub = mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target'
-    bans.push({ id: c.id, score: Math.round(banScore * 100), reason: generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit), sub: banSub })
+    const banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%` : (mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target')
+    let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit)
+    if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
+    bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
   }
 
   picks.sort((a, b) => b.score - a.score)
