@@ -3122,6 +3122,8 @@ function getSuggestions() {
   // The enemy's FORMING archetype — draft tools that beat it once they reveal ≥2.
   const enemyProfile = teamProfile(enemySide)
   const enemyArch = enemyProfile.n >= 2 ? compArchetype(enemyProfile) : null
+  // ITEM VALUE: a one-sided enemy damage profile is countered by a tank stacking the resist.
+  const enemySkew = dmgSkew(enemyProfile)
   // Lean toward comp STYLES our roster actually wins on (once we have a few games).
   const styleWR = (isOurs && (mainTab === 'ranked5' || mainTab === 'flex')) ? archetypeWinRates() : null
   const useStyle = styleWR && styleWR.total >= 6 && pAlly.length >= 2
@@ -3247,9 +3249,11 @@ function getSuggestions() {
         if (entry && entry.source === 'opgg' && entry.games >= 1 && entry.games <= 6) modeBias += 0.03  // lightly-played → test it
       }
       const kitPen = isOurs ? kitCounterPenalty(c.id, pEnemy) : 0   // e.g. our big-ult pick into enemy Sylas
+      // Item value: reward a tank into a one-sided enemy comp (stacks the matching resist).
+      const itemBoost = (isOurs && enemySkew && tankiness(c.id, role) >= 0.6) ? 0.06 : 0
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen - kitPen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + itemBoost + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
       // GATED player: in the gated mode (e.g. Shane in Ranked 5's), only suggest champs
       // in their vouched pool for their role — don't propose off-pool picks for them.
@@ -3753,6 +3757,20 @@ const WINCON = {
 }
 function timingLabel(t) { return t === 'early' ? 'Early-game' : t === 'scaling' ? 'Scaling' : 'Balanced' }
 // How to BEAT each enemy archetype (drafting-guide "beaten by"): the advice we show
+// TRIFECTA (rock-paper-scissors): front-to-back ▸ beats dive ▸ beats poke ▸ beats front-to-back.
+// Maps an enemy archetype → the comp style that beats it (for strategic framing).
+const ARCH_COUNTERS = {
+  'Dive': 'Front-to-back', 'Poke/Siege': 'Dive', 'Front-to-back': 'Poke/Siege',
+  'Engage': 'Disengage / poke', 'Pick': 'Group + vision', 'Flexible': '',
+}
+// ITEM VALUE: a comp whose damage is mostly one type is countered cheaply by stacking the
+// matching resist (full-AD → armor/tanks 1v9; full-AP → MR). Returns the skew or null.
+function dmgSkew(profile) {
+  if (!profile || profile.n < 3) return null
+  if (profile.adPct >= 72) return { type: 'AD', resist: 'armor', pct: profile.adPct }
+  if (profile.apPct >= 72) return { type: 'AP', resist: 'magic resist', pct: profile.apPct }
+  return null
+}
 // and the tool we nudge our suggestions toward when they're building that comp.
 const BEATEN_BY = {
   'Poke/Siege':    { tip: 'Force a committed 5v5 with hard engage — poke comps fold once you close the gap.', want: 'engage' },
@@ -3991,10 +4009,17 @@ function renderComp() {
     if (e.n) {
       const earch = compArchetype(e)
       const tip = e.n >= 2 && BEATEN_BY[earch] ? BEATEN_BY[earch].tip : ''
+      const tri = e.n >= 2 && ARCH_COUNTERS[earch] ? ARCH_COUNTERS[earch] : ''
       html += `<div class="wc-block ${themCls}"><div class="wc-lbl">Enemy shaping up as</div>
         <div class="wc-item">${earch} · ${timingLabel(e.timing)}${e.n<5?' (so far)':''}</div>
-        ${tip ? `<div class="wc-item" style="color:var(--gray-l)">Beat it: ${tip}</div>` : ''}</div>`
+        ${tip ? `<div class="wc-item" style="color:var(--gray-l)">Beat it${tri ? ` (${tri})` : ''}: ${tip}</div>` : ''}</div>`
     }
+    // ITEM VALUE — exploit a one-sided enemy damage profile with a tank (stack the resist).
+    const eSkew = dmgSkew(e)
+    if (eSkew) html += `<div class="wc-block ${usCls}"><div class="wc-lbl" style="color:var(--green)">Item-value edge</div><div class="wc-item">Enemy is ${eSkew.pct}% ${eSkew.type} — a tank stacking ${eSkew.resist} shreds them. Favor a beefy frontline.</div></div>`
+    // ITEM VALUE — warn when OUR comp is one-sided (enemy itemizes one resist for free).
+    const ourSkew = dmgSkew(p)
+    if (ourSkew) html += `<div class="wc-block ${usCls}"><div class="wc-lbl" style="color:#E87A65">⚠ One-sided damage</div><div class="wc-item">You're ${ourSkew.pct}% ${ourSkew.type} — they'll itemize ${ourSkew.resist} cheaply against your whole team. Add ${ourSkew.type === 'AD' ? 'AP' : 'AD'} damage.</div></div>`
     // Draft sanity check #8 — our carries that an enemy pick hard-counters.
     const cc = counteredCarries(mySide, otherSide())
     if (cc.length) {
