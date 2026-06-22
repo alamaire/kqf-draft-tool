@@ -507,6 +507,9 @@ const PLAYER_PREFS = {
   'lp fisherman':  { signature: ['Smolder', 'Ziggs'], playable: ['Corki'], style: 'sub — plays ADC' },
 }
 const PREF_ROLE_KEYS = ['top', 'jungle', 'mid', 'adc', 'support']
+// Combo-only picks: low priority UNLESS the partner is on our team (champ name → required ally).
+// e.g. Sona is only a pick for us alongside Seraphine bot — not a standalone comfort.
+const COMBO_PICKS = { 'Sona': 'Seraphine' }
 function prefTier(playerName, champId, role) {
   const pr = PLAYER_PREFS[playerName]; if (!pr) return null
   // Role-keyed prefs (flex players like MonkeyDAdam) use the set for their CURRENT
@@ -2335,6 +2338,13 @@ function bestFamiliarity(champId, role) {
       f = Math.min(1, Math.max(f, PT[0]) + PT[1])
       if (!entry) entry = { championId: champId, games: (rg ? rg.games : 0) + (og ? og.games : 0), wins: 0, winRate: og ? og.winRate : (rg ? rg.winRate : 0), source: 'note' }
       entry.prefTier = tier
+    }
+    // Combo-only pick (e.g. Sona): low priority unless its partner (Seraphine) is on our
+    // team — keeps a 2-game niche combo from looking like a standalone comfort pick.
+    const cn = CHAMPS[champId] && CHAMPS[champId].name
+    if (entry && COMBO_PICKS[cn]) {
+      const partnerLocked = DS[mySide].picks.includes(NAME_ID[COMBO_PICKS[cn]])
+      f = partnerLocked ? Math.max(f, 0.7) : Math.min(f, 0.15)
     }
     if (entry && f > result.score) result = { score: Math.min(1, f), player: p, entry }
   }
