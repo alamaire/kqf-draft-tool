@@ -3195,10 +3195,14 @@ function getSuggestions() {
     if (ourPicks.length <= 1) {
       for (const p of roster) {
         if (!p.active || p.role === 'sub') continue
-        // Prefer the champ this player actually plays/wins in our 5-man games; fall
-        // back to their op.gg most-played. Protect it from blind-pick punishers.
+        // Blind-pick punishing is a SOLO-LANE concept — only protect top/mid comfort, and
+        // only from a champ that actually plays that lane (no cross-role false counters
+        // like Vayne→mid-GP or Karma→jungle-Elise).
+        if (p.role !== 'top' && p.role !== 'mid') continue
         const fav = rosterComfort(p.name) || (p.pool || [])[0]
-        if (fav && beatsInLane(c.id, fav.championId)) { punishesComfort = rosterComfort(p.name) ? 0.18 : 0.16; comfortHit = CHAMPS[fav.championId]?.name; break }
+        if (fav && champRoles(c.id).has(p.role) && beatsInLane(c.id, fav.championId)) {
+          punishesComfort = rosterComfort(p.name) ? 0.18 : 0.16; comfortHit = CHAMPS[fav.championId]?.name; break
+        }
       }
     }
     // Pro ban priority — flexible / high-impact champs teams refuse to leave open.
