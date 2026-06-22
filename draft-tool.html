@@ -2673,7 +2673,7 @@ function historySave(entry) {
 let _histCache = null
 function historyStats() {
   if (_histCache) return _histCache
-  const champ = {}, pair = {}, vs = {}
+  const champ = {}, pair = {}, vs = {}, enemy = {}, enemyArch = {}
   const bump = (o, k, win) => { (o[k] = o[k] || { w:0, l:0 })[win ? 'w' : 'l']++ }
   for (const d of historyLoad()) {
     if (d.result !== 'win' && d.result !== 'loss') continue
@@ -2686,9 +2686,34 @@ function historyStats() {
       for (const b of ourP) if (a < b) bump(pair, a + '|' + b, win)
       for (const e of enemyP) bump(vs, a + '>' + e, win)
     }
+    // STRUGGLE learning: our record FACING each enemy champ + enemy comp archetype.
+    for (const e of enemyP) bump(enemy, e, win)
+    const enemyIds = enemyP.map(n => NAME_ID[n]).filter(Boolean)
+    if (enemyIds.length >= 4) bump(enemyArch, compArchetype(profileOfIds(enemyIds)), win)
   }
-  _histCache = { champ, pair, vs }
+  _histCache = { champ, pair, vs, enemy, enemyArch }
   return _histCache
+}
+// Enemy champions/archetypes our roster LOSES to (from saved + auto-captured games).
+// minGames filters noise. Returns sorted worst-first.
+function strugglesAgainst(minGames = 2) {
+  const S = historyStats()
+  const champs = Object.entries(S.enemy)
+    .filter(([, r]) => r.w + r.l >= minGames && r.l > r.w)
+    .map(([name, r]) => ({ name, w: r.w, l: r.l, lossRate: Math.round(r.l / (r.w + r.l) * 100) }))
+    .sort((a, b) => b.lossRate - a.lossRate || b.l - a.l)
+  const archs = Object.entries(S.enemyArch)
+    .filter(([, r]) => r.w + r.l >= minGames && r.l > r.w)
+    .map(([arch, r]) => ({ arch, w: r.w, l: r.l, lossRate: Math.round(r.l / (r.w + r.l) * 100) }))
+    .sort((a, b) => b.lossRate - a.lossRate)
+  return { champs, archs }
+}
+// Ban value from struggle history: how much facing this champ has cost us games.
+function struggleBanBoost(champId) {
+  const name = CHAMPS[champId]?.name; if (!name) return 0
+  const r = historyStats().enemy[name]
+  if (!r || r.w + r.l < 2 || r.l <= r.w) return 0
+  return Math.min(0.18, (r.l - r.w) / 8)   // worse record vs it → higher ban value
 }
 // Our win/loss record on a champion (by id) — drives the visible "your games" note.
 function historyRecord(champId) {
@@ -2937,9 +2962,11 @@ function getSuggestions() {
   // BALANCED four-pillar model: ROSTER (fam) · META (meta+pro) · COMP (comp+syn+
   // timing) · COUNTERS (lane+others) carry comparable weight; comp & counters scale
   // up as the draft reveals more. Enemy predictions drop roster, lean meta/pro.
+  // COUNTERS-FIRST: solo-queue WR (meta) is a light baseline; lane/comp counters carry
+  // the weight (see wLane/wOthers/archBoost below).
   const W = isOurs
-    ? { fam:0.20, meta:0.15, pro:0.08, synBase:0.10 }
-    : { fam:0.00, meta:0.28, pro:0.20, synBase:0.04 }
+    ? { fam:0.20, meta:0.10, pro:0.07, synBase:0.10 }
+    : { fam:0.00, meta:0.24, pro:0.18, synBase:0.04 }
   // TAILOR flex/ranked5 to our 5-man games: the more games we have, the more our
   // real roster comfort + duo synergy drive picks (vs generic solo-queue meta).
   const rTrust = rosterTrust()
@@ -3042,8 +3069,8 @@ function getSuggestions() {
       //   COUNTERS = lane matchup + other enemies, grows as they reveal
       const wComp   = 0.15 + 0.06 * (aC / 5)        // team comp fit
       const wSyn    = 0.10 + 0.04 * (aC / 5)        // synergy / duos
-      const wLane   = laneOpp ? 0.16 : 0            // direct lane matchup
-      const wOthers = 0.10 * (otherEnemies.length / 4)
+      const wLane   = laneOpp ? 0.24 : 0            // direct lane COUNTER — heavily weighted
+      const wOthers = 0.16 * (otherEnemies.length / 4)   // counters vs the rest of their team
       // itero TIMING fit — reward picks matching the team's early/scaling identity.
       const myCurve = laneOutlook(c.id, role).curve
       let timingFit = 0
@@ -3063,7 +3090,7 @@ function getSuggestions() {
       }
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
@@ -3108,7 +3135,7 @@ function getSuggestions() {
     // Pro ban priority — flexible / high-impact champs teams refuse to leave open.
     // Protecting our locked picks grows as we commit more of our comp.
     const proBan = proBanScore(c.id)
-    const protectW = 0.22 + 0.14 * (ourPicks.length / 5)
+    const protectW = 0.30 + 0.18 * (ourPicks.length / 5)   // counters-to-our-picks weighted heavily
     // TARGET-BAN: if we scouted a named enemy who mains this champ, prioritise denying
     // it — scaled by their games + win rate, with a bonus when it also breaks our comp.
     const ec = enemyComfort(c.id)
@@ -3121,21 +3148,26 @@ function getSuggestions() {
     // Counters our COMP (not just a lane pick): a champ that beats our forming
     // archetype is worth denying — a key no-scouting ban signal.
     const antiComp = ourArchForBan ? archetypeCounterBoost(c.id, ourArchForBan) : 0
+    // Learned STRUGGLE: champs our roster keeps losing to (from history) are ban-worthy.
+    const struggle = (mainTab === 'ranked5' || mainTab === 'flex') ? struggleBanBoost(c.id) : 0
     let banScore = threatToUs * protectW + breakBonus + openBonus
-                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.2
-                 + mBest.score * 0.15 + proBan * 0.16 + prScore * 0.07
+                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.8 + struggle
+                 + mBest.score * 0.07 + proBan * 0.13 + prScore * 0.04   // WR is a light baseline; counters lead
     // The enemy already filled every role this champ plays → they can't pick it →
     // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
     if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
     // Sub tells you WHY it's a ban target (enemy's personal record if scouted; else the
     // dominant reason) — not the generic solo-queue WR.
+    const sr = struggle > 0 ? historyStats().enemy[CHAMPS[c.id].name] : null
     const banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%`
+      : struggle > 0 ? `you're ${sr.w}-${sr.l} vs it`
       : antiComp >= 0.05 ? 'counters your comp'
       : threatToUs > 0.4 ? 'counters your picks'
       : proBan >= 0.5 ? 'high meta priority'
       : 'meta threat'
     let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit)
     if (antiComp >= 0.05 && !scoutNote) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
+    if (struggle > 0) banReason = `Your roster is ${sr.w}-${sr.l} against it — a recurring problem. ` + (banReason || '')
     if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
     bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
   }
@@ -3749,6 +3781,14 @@ function renderComp() {
         <div class="wc-item">${needs.length ? 'Still need: <b>'+needs.join(', ')+'</b>' : 'Core boxes covered ✓ — now pick for power & matchups'}</div>
         ${styleLine}
       </div>`
+    }
+    // Compiled from history: enemy champs / comps the roster keeps losing to.
+    if (mainTab === 'ranked5' || mainTab === 'flex') {
+      const st = strugglesAgainst()
+      const bits = []
+      if (st.champs.length) bits.push(st.champs.slice(0, 4).map(c => `${c.name} (${c.w}-${c.l})`).join(', '))
+      if (st.archs.length) bits.push(st.archs.slice(0, 2).map(a => `${a.arch} comps (${a.w}-${a.l})`).join(', '))
+      if (bits.length) html += `<div class="wc-block ${usCls}"><div class="wc-lbl" style="color:#E87A65">⚠ Roster struggles vs</div><div class="wc-item">${bits.join(' · ')} — worth banning or drafting around.</div></div>`
     }
     if (e.n) {
       const earch = compArchetype(e)
