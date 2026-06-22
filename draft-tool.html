@@ -339,6 +339,11 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .rg-champ{width:22px;height:22px;border-radius:3px;border:1px solid var(--gold-d)}
 .rg-bans{display:flex;gap:3px;align-items:center;margin-left:auto}
 .rg-bans-lbl{font-size:8px;color:var(--gray-l);letter-spacing:.5px}
+.ra-block{margin:8px 0;padding:8px 10px;border:1px solid var(--gold-d);border-radius:5px;background:var(--dark3)}
+.ra-title{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--gold);margin-bottom:6px}
+.ra-row{display:flex;gap:8px;font-size:10px;line-height:1.5;padding:1px 0}
+.ra-lbl{flex:0 0 88px;color:var(--gray-l)}
+.ra-val{flex:1;color:var(--gold-l)}
 .rg-ban{width:16px;height:16px;border-radius:3px;filter:grayscale(1) brightness(.7);position:relative}
 .bans-toggle-row{display:flex;align-items:center;gap:6px}
 .bans-toggle-lbl{font-size:10px;color:var(--gray-l);font-weight:600;letter-spacing:1px}
@@ -1903,6 +1908,32 @@ function renderTracker(el) {
       : ''
     return `<div class="rg-row"><span class="rg-res ${g.win ? 'w' : 'l'}">${g.win ? 'W' : 'L'}</span><span class="rg-date">${d}</span><span class="rg-champs">${champs}</span>${bansHtml}</div>`
   }).join('')
+  // ── Roster Analysis — compiled from saved + auto-captured drafts (both teams known).
+  // Deepens as more games are captured. Each line only shows once it has ≥2-game signal.
+  const ins = rosterInsights()
+  const raLine = (label, items, fmt) => items && items.length
+    ? `<div class="ra-row"><span class="ra-lbl">${label}</span><span class="ra-val">${items.slice(0, 4).map(fmt).join(' · ')}</span></div>` : ''
+  let analysis = ''
+  if (ins.games >= 3) {
+    const sideTxt = []
+    const sb = ins.side.blue, sr = ins.side.red
+    if (sb.w + sb.l) sideTxt.push(`Blue ${sb.w}-${sb.l}`)
+    if (sr.w + sr.l) sideTxt.push(`Red ${sr.w}-${sr.l}`)
+    analysis = `<div class="ra-block">
+      <div class="ra-title">📊 Roster Analysis · ${ins.games} drafted game${ins.games !== 1 ? 's' : ''}</div>
+      ${sideTxt.length ? `<div class="ra-row"><span class="ra-lbl">By side</span><span class="ra-val">${sideTxt.join(' · ')}</span></div>` : ''}
+      ${raLine('Win on comp', ins.bestComps, c => `${c.k} ${c.w}-${c.l}`)}
+      ${raLine('Lose on comp', ins.worstComps, c => `${c.k} ${c.w}-${c.l}`)}
+      ${raLine('⚠ Struggle vs', ins.struggles.champs, c => `${c.name} (${c.w}-${c.l})`)}
+      ${raLine('⚠ vs comp', ins.struggles.archs, c => `${c.arch} (${c.w}-${c.l})`)}
+      ${raLine('⚠ vs timing', ins.struggles.timing, c => `${c.timing} (${c.w}-${c.l})`)}
+      ${raLine('⚠ vs duos', ins.struggles.duos, c => `${c.duo} (${c.w}-${c.l})`)}
+      ${raLine('Best picks', ins.bestChamps, c => `${c.k} ${c.w}-${c.l}`)}
+      ${raLine('Weak picks', ins.worstChamps, c => `${c.k} ${c.w}-${c.l}`)}
+    </div>`
+  } else {
+    analysis = `<div class="ra-block"><div class="ra-title">📊 Roster Analysis</div><div class="ra-row" style="color:var(--gray-l)">Builds as games are auto-captured (need ≥3 drafted games with both teams). ${ins.games} so far.</div></div>`
+  }
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
       <span class="track-team-lbl">TEAM RECORD · ${modeLbl}</span>
@@ -1911,6 +1942,7 @@ function renderTracker(el) {
       <span class="track-team-n">${tr.games} full-roster game${tr.games !== 1 ? 's' : ''}</span>
     </div>
     <div class="track-cards">${cards}</div>
+    ${analysis}
     ${games.length ? `<div class="rg-list-lbl">Match history (${games.length})</div><div class="rg-list">${gamesHtml}</div>` : ''}
     ${tr.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet${mainTab === 'ranked5' ? " — Ranked 5's launches Jun 26" : ''}. Play a full 5-stack, then refresh the Riot data.</div>`}
   </div>`
@@ -2751,7 +2783,7 @@ function historySave(entry) {
 let _histCache = null
 function historyStats() {
   if (_histCache) return _histCache
-  const champ = {}, pair = {}, vs = {}, enemy = {}, enemyArch = {}
+  const champ = {}, pair = {}, vs = {}, enemy = {}, enemyArch = {}, side = {}, enemyTiming = {}, enemyPair = {}, games = []
   const bump = (o, k, win) => { (o[k] = o[k] || { w:0, l:0 })[win ? 'w' : 'l']++ }
   for (const d of historyLoad()) {
     if (d.result !== 'win' && d.result !== 'loss') continue
@@ -2759,32 +2791,58 @@ function historyStats() {
     const win = d.result === 'win'
     const ourP = (d[our]?.picks || []).filter(Boolean)
     const enemyP = (d[them]?.picks || []).filter(Boolean)
+    bump(side, our, win)
+    games.push({ win, mode: d.mode, date: d.date })
     for (const a of ourP) {
       bump(champ, a, win)
       for (const b of ourP) if (a < b) bump(pair, a + '|' + b, win)
       for (const e of enemyP) bump(vs, a + '>' + e, win)
     }
-    // STRUGGLE learning: our record FACING each enemy champ + enemy comp archetype.
+    // STRUGGLE learning: our record FACING each enemy champ, duo, comp archetype + timing.
     for (const e of enemyP) bump(enemy, e, win)
+    for (let i = 0; i < enemyP.length; i++) for (let j = i + 1; j < enemyP.length; j++)
+      bump(enemyPair, [enemyP[i], enemyP[j]].sort().join(' + '), win)
     const enemyIds = enemyP.map(n => NAME_ID[n]).filter(Boolean)
-    if (enemyIds.length >= 4) bump(enemyArch, compArchetype(profileOfIds(enemyIds)), win)
+    if (enemyIds.length >= 4) { bump(enemyArch, compArchetype(profileOfIds(enemyIds)), win); bump(enemyTiming, teamTimingProfile(enemyIds).timing, win) }
   }
-  _histCache = { champ, pair, vs, enemy, enemyArch }
+  _histCache = { champ, pair, vs, enemy, enemyArch, side, enemyTiming, enemyPair, games }
   return _histCache
 }
 // Enemy champions/archetypes our roster LOSES to (from saved + auto-captured games).
 // minGames filters noise. Returns sorted worst-first.
 function strugglesAgainst(minGames = 2) {
   const S = historyStats()
-  const champs = Object.entries(S.enemy)
+  const losing = (obj, key) => Object.entries(obj)
     .filter(([, r]) => r.w + r.l >= minGames && r.l > r.w)
-    .map(([name, r]) => ({ name, w: r.w, l: r.l, lossRate: Math.round(r.l / (r.w + r.l) * 100) }))
+    .map(([k, r]) => ({ [key]: k, w: r.w, l: r.l, lossRate: Math.round(r.l / (r.w + r.l) * 100) }))
     .sort((a, b) => b.lossRate - a.lossRate || b.l - a.l)
-  const archs = Object.entries(S.enemyArch)
-    .filter(([, r]) => r.w + r.l >= minGames && r.l > r.w)
-    .map(([arch, r]) => ({ arch, w: r.w, l: r.l, lossRate: Math.round(r.l / (r.w + r.l) * 100) }))
-    .sort((a, b) => b.lossRate - a.lossRate)
-  return { champs, archs }
+  return {
+    champs: losing(S.enemy, 'name'),
+    archs:  losing(S.enemyArch, 'arch'),
+    timing: losing(S.enemyTiming, 'timing'),
+    duos:   losing(S.enemyPair, 'duo'),
+  }
+}
+// Full compiled match-history analysis for the Tracker — deepens as games accumulate.
+function rosterInsights() {
+  const S = historyStats()
+  const rec = o => Object.values(o).reduce((a, r) => ({ w: a.w + r.w, l: a.l + r.l }), { w: 0, l: 0 })
+  const wr = r => (r.w + r.l) ? Math.round(r.w / (r.w + r.l) * 100) : 0
+  const totalGames = (S.games || []).length
+  const topList = (obj, key, wantWin, min) => Object.entries(obj)
+    .filter(([, r]) => r.w + r.l >= min && (wantWin ? r.w > r.l : r.l > r.w))
+    .map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) }))
+    .sort((a, b) => wantWin ? (b.wr - a.wr || b.w - a.w) : (a.wr - b.wr || b.l - a.l))
+  const awr = (typeof archetypeWinRates === 'function') ? archetypeWinRates().rec : {}
+  return {
+    games: totalGames,
+    side: { blue: S.side.blue || { w: 0, l: 0 }, red: S.side.red || { w: 0, l: 0 } },
+    struggles: strugglesAgainst(2),
+    bestComps: Object.entries(awr).filter(([, r]) => r.w + r.l >= 2 && r.w >= r.l).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => b.wr - a.wr),
+    worstComps: Object.entries(awr).filter(([, r]) => r.w + r.l >= 2 && r.l > r.w).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => a.wr - b.wr),
+    bestChamps: topList(S.champ, 'name', true, 2).slice(0, 6),
+    worstChamps: topList(S.champ, 'name', false, 2).slice(0, 5),
+  }
 }
 // Ban value from struggle history: how much facing this champ has cost us games.
 function struggleBanBoost(champId) {
@@ -3927,6 +3985,7 @@ function renderComp() {
       const bits = []
       if (st.champs.length) bits.push(st.champs.slice(0, 4).map(c => `${c.name} (${c.w}-${c.l})`).join(', '))
       if (st.archs.length) bits.push(st.archs.slice(0, 2).map(a => `${a.arch} comps (${a.w}-${a.l})`).join(', '))
+      if (st.timing.length) bits.push(st.timing.slice(0, 1).map(t => `${t.timing}-game comps (${t.w}-${t.l})`).join(', '))
       if (bits.length) html += `<div class="wc-block ${usCls}"><div class="wc-lbl" style="color:#E87A65">⚠ Roster struggles vs</div><div class="wc-item">${bits.join(' · ')} — worth banning or drafting around.</div></div>`
     }
     if (e.n) {
