@@ -249,7 +249,8 @@ http.createServer(async (req, res) => {
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    // Never cache — always serve the latest file so the bookmarked page updates on refresh.
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store, must-revalidate' });
     res.end(buf);
   });
 }).listen(PORT, async () => {
