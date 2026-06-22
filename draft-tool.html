@@ -849,8 +849,13 @@ function rolePairSynergy(champId, role, allyByRole) {
   }
   return best
 }
-function counteredByNames(champId, enemyPicks) {
-  return [...new Set(enemyPicks.filter(e => beatsInLane(e, champId)).map(e => CHAMPS[e]?.name).filter(Boolean))]
+// Enemies that beat champId IN LANE. role-aware: only counts opponents who actually
+// play that role (a champ is only countered by who it laneS against — e.g. mid GP isn't
+// "countered" by Vayne/Varus, which are its TOP-lane counters).
+function counteredByNames(champId, enemyPicks, role) {
+  return [...new Set(enemyPicks
+    .filter(e => beatsInLane(e, champId) && (!role || champRoles(e).has(role)))
+    .map(e => CHAMPS[e]?.name).filter(Boolean))]
 }
 
 // ── Champion identity & first-pickability ───────────────────────────────────
@@ -2450,7 +2455,7 @@ function pickChips(champ, player, entry, allyPicks, enemyPicks, role) {
   // Matchups
   const strong = countersNamed(champ.id, enemyPicks)
   if (strong.length) chips.push({ t: `strong vs ${strong[0]}`, p: true })
-  const cby = counteredByNames(champ.id, enemyPicks)
+  const cby = counteredByNames(champ.id, enemyPicks, role)
   if (cby.length) chips.push({ t: `countered by ${cby[0]}`, p: false })
   // Composition needs
   const allies = allyPicks.map(id => CHAMPS[id]).filter(Boolean)
@@ -3029,7 +3034,10 @@ function getSuggestions() {
     // Sejuani/Nautilus top that op.gg would never list there).
     const cr = champRoles(c.id)
     const prefR = isOurs ? champPrefRoles(c.id) : EMPTY_SET
-    const openMatch = useRoles.filter(r => cr.has(r) || prefR.has(r))
+    // If a roster player vouches this champ, we have intel on exactly which role(s) we
+    // play it — suggest it ONLY there (so GP, vouched mid, never shows as a top pick),
+    // overriding op.gg's roles. Non-vouched champs use their op.gg roles as usual.
+    const openMatch = prefR.size ? useRoles.filter(r => prefR.has(r)) : useRoles.filter(r => cr.has(r))
     if (openMatch.length) {
       // Choose the role to suggest in: best meta WEIGHTED BY how much it's actually a
       // role the champ plays — primary roles dominate, off-roles discounted. A vouched
@@ -3053,7 +3061,7 @@ function getSuggestions() {
                      : (entry && entry.source === 'roster' && entry.rosterGames >= 2 && entry.winRate >= 55) ? 0.5 : 0
       // Role-pair synergy (bot duo / jungle-support / jungle-mid) with our locked picks.
       const syn = rolePairSynergy(c.id, role, allyByRole).score
-      const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy).length * 0.08) * (1 - 0.5 * comfortF)
+      const cByPen = Math.min(0.15, counteredByNames(c.id, pEnemy, role).length * 0.08) * (1 - 0.5 * comfortF)
 
       // #1 LANE MATCHUP — the single biggest factor once the lane opponent is known.
       const laneOpp = laneOpponent(role, enemySide)
@@ -3238,7 +3246,7 @@ function getSoloSuggestions(allyPicks, enemyPicks, used) {
     const comp    = compNeed(c, allyPicks)
     const m       = metaForRole(c.id, soloRole)   // current-patch strength in the role
     const syn = synergyScore(c.id, allyPicks)
-    const cByPen = Math.min(0.15, counteredByNames(c.id, enemyPicks).length * 0.08)
+    const cByPen = Math.min(0.15, counteredByNames(c.id, enemyPicks, soloRole).length * 0.08)
     // Personal matchup history vs the enemy laner — your own success/struggle on this
     // champ into them weighs in and is surfaced in the reason.
     let muBoost = 0, muNote = ''
