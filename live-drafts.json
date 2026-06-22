@@ -1,0 +1,638 @@
+[
+  {
+    "gameId": 5586850892,
+    "date": "2026-06-22T06:45:51.708Z",
+    "mode": "solo",
+    "ourSide": "red",
+    "sequence": [
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Master Yi"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Senna"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "K'Sante"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "LeBlanc"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Mel"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Nautilus"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Vayne"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Naafiri"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Briar"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Tahm Kench"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Talon"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Zyra"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Yasuo"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Akali"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Fiddlesticks"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Veigar"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Lee Sin"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Ashe"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Malzahar"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Sylas"
+      }
+    ],
+    "blue": {
+      "picks": [
+        "Talon",
+        "Akali",
+        "Fiddlesticks",
+        "Ashe",
+        "Malzahar"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "red": {
+      "picks": [
+        "Sylas",
+        "Lee Sin",
+        "Veigar",
+        "Yasuo",
+        "Zyra"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "result": "loss",
+    "notes": "Auto-captured live",
+    "live": true
+  },
+  {
+    "gameId": 5586827579,
+    "date": "2026-06-22T06:05:26.921Z",
+    "mode": "solo",
+    "ourSide": "blue",
+    "sequence": [
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Fiora"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Morgana"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Ezreal"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Warwick"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Senna"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Warwick"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Vex"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Teemo"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Naafiri"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Kayn"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Garen"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Nunu & Willump"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Xerath"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Blitzcrank"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Azir"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Singed"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Caitlyn"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Ivern"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Ashe"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Katarina"
+      }
+    ],
+    "blue": {
+      "picks": [
+        "Garen",
+        "Ivern",
+        "Azir",
+        "Ashe",
+        "Blitzcrank"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "red": {
+      "picks": [
+        "Nunu & Willump",
+        "Xerath",
+        "Singed",
+        "Caitlyn",
+        "Katarina"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "result": "loss",
+    "notes": "Auto-captured live",
+    "live": true
+  },
+  {
+    "gameId": 5586807786,
+    "date": "2026-06-22T05:25:23.212Z",
+    "mode": "solo",
+    "ourSide": "red",
+    "sequence": [
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Briar"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Brand"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Smolder"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Volibear"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Naafiri"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Smolder"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Brand"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Viego"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Mordekaiser"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": null
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Wukong"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Senna"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Tahm Kench"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Xayah"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Rakan"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Warwick"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Yorick"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Irelia"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Fizz"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Sylas"
+      }
+    ],
+    "blue": {
+      "picks": [
+        "Wukong",
+        "Xayah",
+        "Rakan",
+        "Irelia",
+        "Fizz"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "red": {
+      "picks": [
+        "Yorick",
+        "Warwick",
+        "Sylas",
+        "Senna",
+        "Tahm Kench"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "result": "loss",
+    "notes": "Auto-captured live",
+    "live": true
+  },
+  {
+    "gameId": 5586800540,
+    "date": "2026-06-22T05:18:40.065Z",
+    "mode": "solo",
+    "ourSide": "red",
+    "sequence": [
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Pyke"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Kayn"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Malzahar"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Jax"
+      },
+      {
+        "team": "blue",
+        "type": "ban",
+        "champ": "Blitzcrank"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Yone"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Akshan"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": null
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Tahm Kench"
+      },
+      {
+        "team": "red",
+        "type": "ban",
+        "champ": "Smolder"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Mel"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Ashe"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Nautilus"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Warwick"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Naafiri"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Sylas"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Ivern"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Camille"
+      },
+      {
+        "team": "blue",
+        "type": "pick",
+        "champ": "Leona"
+      },
+      {
+        "team": "red",
+        "type": "pick",
+        "champ": "Singed"
+      }
+    ],
+    "blue": {
+      "picks": [
+        "Mel",
+        "Warwick",
+        "Naafiri",
+        "Camille",
+        "Leona"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "red": {
+      "picks": [
+        "Singed",
+        "Ivern",
+        "Sylas",
+        "Ashe",
+        "Nautilus"
+      ],
+      "bans": [],
+      "names": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "roles": [
+        "top",
+        "jungle",
+        "mid",
+        "adc",
+        "support"
+      ]
+    },
+    "result": "loss",
+    "notes": "Auto-captured live",
+    "live": true
+  }
+]
