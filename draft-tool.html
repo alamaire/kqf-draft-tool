@@ -2936,7 +2936,7 @@ function getSuggestions() {
       const sc100 = Math.max(0, Math.round(score * 100))
       const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
       const offTag = fit < 0.6 ? ' · off-role' : ''
-      const sub = (m.wr !== null ? `${role.toUpperCase()} ${m.wr.toFixed(1)}% WR · ${PATCH}` : role.toUpperCase()) + offTag
+      const sub = role.toUpperCase() + offTag
       picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
     }
 
@@ -3056,7 +3056,7 @@ function getSoloSuggestions(allyPicks, enemyPicks, used) {
     const sc100 = Math.max(0, Math.round(score * 100))
     let reason = generatePickReason(c, me, e, allyPicks, enemyPicks)
     if (muNote) reason = reason ? reason + ' ' + muNote : muNote
-    const sub = m.wr !== null ? `${m.wr.toFixed(1)}% WR · ${PATCH}` : ''
+    const sub = e.games ? `${ewr}% over ${e.games} of your games` : ''
     picks.push({ id: c.id, score: sc100, reason, sub, inRole })
   }
 
