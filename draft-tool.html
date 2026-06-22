@@ -2241,7 +2241,19 @@ function rosterTrust() {
 }
 // A player's go-to champ in our 5-man games (most-played, ≥2 games) — what bans
 // should protect. null if no roster games for them in the current mode.
+// The player's vouched signature champ id (role-aware), if any.
+function playerSignature(playerKey) {
+  const pr = PLAYER_PREFS[playerKey]; if (!pr) return null
+  const p = roster.find(x => x.name === playerKey)
+  const set = PREF_ROLE_KEYS.some(k => pr[k]) ? (p && pr[p.role]) : pr
+  const sig = set && set.signature && set.signature[0]
+  return sig && NAME_ID[sig] ? NAME_ID[sig] : null
+}
 function rosterComfort(playerKey) {
+  // Protect their VOUCHED signature first — a small-sample roster fluke (e.g. 2 Sona
+  // games in a Sera+Sona bot) shouldn't override their actual main (Thresh).
+  const sig = playerSignature(playerKey)
+  if (sig) return { championId: sig }
   const b = rosterBucket(false)
   const pool = b && b.pools && b.pools[playerKey]
   if (!pool || !pool.length) return null
