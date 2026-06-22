@@ -362,6 +362,7 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 <!-- HEADER -->
 <div class="hdr">
   <span class="hdr-title">DRAFT TOOL</span>
+  <button class="btn" style="font-size:10px;padding:3px 9px" onclick="openRiotKeyModal()" title="Enter / refresh your daily Riot API key">🔑 Key</button>
   <div class="main-tabs">
     <div class="main-tab active" onclick="switchMainTab('flex')">Flex Queue</div>
     <div class="main-tab" onclick="switchMainTab('ranked5')">Ranked 5's</div>
@@ -489,7 +490,7 @@ const KQF_ROSTER = [
 // signature = standout best · strong = clearly good · playable = can play if needed.
 // Keyed by lowercase roster name; values are champion display names.
 const PLAYER_PREFS = {
-  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas'] },
+  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas', 'Irelia', 'Riven', 'Tryndamere'] },
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
                      playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
   styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
@@ -2275,8 +2276,14 @@ function rosterTrust() {
 // How much OUR roster values a champ (max familiarity across our players/roles) —
 // drives the "what the enemy would ban against us" prediction.
 function ourChampValue(champId) {
+  // Only value a champ in roles we STILL NEED, and only where it actually plays for us
+  // (so the enemy-ban prediction won't flag MF when Adam's slotted mid, or a mid champ
+  // once our mid is locked).
   let best = 0
-  for (const r of ALL_ROLES) { const f = bestFamiliarity(champId, r); if (f && f.score > best) best = f.score }
+  for (const r of openRolesFor(mySide)) {
+    if (!lanesAs(champId, r) && !rolePrefTier(champId, r)) continue
+    const f = bestFamiliarity(champId, r); if (f && f.score > best) best = f.score
+  }
   return best
 }
 // The player's vouched signature champ id (role-aware), if any.
@@ -3286,12 +3293,18 @@ function getSuggestions() {
     if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
     // ENEMY BAN PREDICTION — flip to what THEY would ban to deny US (our comfort/strengths).
     if (enemyBanTurn) {
+      // They ban to deny US — only champs that fit a role we STILL NEED (no filled
+      // roles, and only roles our slotted players actually play that champ in).
+      const playsOpen = openRolesFor(mySide).some(r => lanesAs(c.id, r) || rolePrefTier(c.id, r))
       const ourVal = ourChampValue(c.id)
-      banScore = ourVal * 0.7 + mBest.score * 0.18
-      banSub = ourVal >= 0.5 ? 'your comfort' : 'strong vs you'
-      banReason = ourVal >= 0.4
-        ? `Your roster is strong on this — expect them to ban it to deny you.`
-        : `A strong meta pick they may remove pre-emptively.`
+      if (!playsOpen) { banScore = 0 }
+      else {
+        banScore = ourVal * 0.7 + mBest.score * 0.18
+        banSub = ourVal >= 0.5 ? 'your comfort' : 'strong vs you'
+        banReason = ourVal >= 0.4
+          ? `Your roster is strong on this — expect them to ban it to deny you.`
+          : `A strong meta pick they may remove pre-emptively.`
+      }
     }
     bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
   }
