@@ -484,6 +484,38 @@ const KQF_ROSTER = [
   { name:'lp fisherman',    display:'LP Fisherman',    defaultRole:'sub',     isSub:true,  opggTag:'NA1'   },
 ]
 
+// Human roster intel — comfort/preference notes from the team that the raw stats
+// can't capture (off-meta picks, who's good on what). NUDGES familiarity and lets
+// vouched picks surface in that player's role even if op.gg never plays them there.
+// signature = standout best · strong = clearly good · playable = can play if needed.
+// Keyed by lowercase roster name; values are champion display names.
+const PLAYER_PREFS = {
+  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'] },
+  teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
+                     playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
+}
+function prefTier(playerName, champId) {
+  const pr = PLAYER_PREFS[playerName]; if (!pr) return null
+  const name = CHAMPS[champId] && CHAMPS[champId].name; if (!name) return null
+  if ((pr.signature || []).includes(name)) return 'signature'
+  if ((pr.strong || []).includes(name)) return 'strong'
+  if ((pr.playable || []).includes(name)) return 'playable'
+  return null
+}
+// The pref tier for whoever currently plays `role` (so a vouched pick is honored in
+// that role even when champRoles/op.gg wouldn't list it there).
+function rolePrefTier(champId, role) {
+  const p = roster.find(p => p.active && p.role !== 'sub' && p.role === role)
+  return p ? prefTier(p.name, champId) : null
+}
+// Roles in which SOME active roster player vouches for this champ (expands eligibility).
+function champPrefRoles(champId) {
+  const roles = new Set()
+  for (const p of roster) { if (p.active && p.role !== 'sub' && prefTier(p.name, champId)) roles.add(p.role) }
+  return roles
+}
+const EMPTY_SET = new Set()
+
 // Baseline champion pools fetched from each player's OP.GG (Season 2026).
 // Shown immediately so the roster is never empty; a live refresh enhances
 // these when the CORS proxy is reachable (OP.GG's API often blocks proxies).
@@ -2194,6 +2226,15 @@ function bestFamiliarity(champId, role) {
       f = Math.min(1, og.games / 40) * 0.6 + Math.max(0, (wr - 50) / 50) * 0.4
       entry = { ...og, source: 'opgg' }
     }
+    // Human intel: a vouched pick gets a familiarity floor + nudge (works even with
+    // no game data, since the team is telling us they play it). Doesn't override data.
+    const tier = prefTier(p.name, champId)
+    if (tier) {
+      const PT = { signature: [0.80, 0.10], strong: [0.58, 0.07], playable: [0.35, 0.04] }[tier]
+      f = Math.min(1, Math.max(f, PT[0]) + PT[1])
+      if (!entry) entry = { championId: champId, games: (rg ? rg.games : 0) + (og ? og.games : 0), wins: 0, winRate: og ? og.winRate : (rg ? rg.winRate : 0), source: 'note' }
+      entry.prefTier = tier
+    }
     if (entry && f > result.score) result = { score: Math.min(1, f), player: p, entry }
   }
   return result
@@ -2375,12 +2416,18 @@ function generatePickReason(champ, player, entry, allyPicks, enemyPicks, histOk,
   const dn = player ? (player.display || player.name) : ''
   const pname = solo ? 'You' : (dn.length > 12 ? dn.slice(0, 12) + '…' : dn)
   const verb = solo ? 'have' : 'has'
+  const sig = entry && entry.prefTier === 'signature' ? ' Signature pick.' : ''
   if (player && entry && entry.source === 'roster' && entry.rosterGames >= 2) {
-    lines.push(`${pname} ${verb} a ${entry.rosterW}-${entry.rosterGames - entry.rosterW} (${entry.rosterWR}%) record on it in our roster games.`)
+    lines.push(`${pname} ${verb} a ${entry.rosterW}-${entry.rosterGames - entry.rosterW} (${entry.rosterWR}%) record on it in our roster games.${sig}`)
   } else if (player && entry && entry.games >= 4) {
     let form = ''
     if (entry.recentGames >= 3) form = ` (recent ${entry.recentGames}g ${entry.recentWR}%)`
-    lines.push(`${pname} ${verb} ${entry.games} games at ${entry.winRate}% WR on it${form}.`)
+    lines.push(`${pname} ${verb} ${entry.games} games at ${entry.winRate}% WR on it${form}.${sig}`)
+  } else if (player && entry && entry.prefTier) {
+    // Vouched by the team even without much game data on record.
+    lines.push(entry.prefTier === 'signature' ? `${pname}'s signature pick — a standout for them.`
+             : entry.prefTier === 'strong' ? `${pname} is strong on it.`
+             : `${pname} can play it if needed.`)
   }
 
   // Which enemies this champ's profile matches up well into
@@ -2867,18 +2914,24 @@ function getSuggestions() {
     }
 
     // PICKS — champ must be able to fill one of the OPEN roles; score it in its
-    // strongest open role (so it competes across every role still needed).
+    // strongest open role (so it competes across every role still needed). A roster
+    // player's vouched pick is also eligible in THEIR role (off-meta picks like
+    // Sejuani/Nautilus top that op.gg would never list there).
     const cr = champRoles(c.id)
-    const openMatch = useRoles.filter(r => cr.has(r))
+    const prefR = isOurs ? champPrefRoles(c.id) : EMPTY_SET
+    const openMatch = useRoles.filter(r => cr.has(r) || prefR.has(r))
     if (openMatch.length) {
-      // Choose the role to suggest in: best meta WEIGHTED BY how much it's actually
-      // a role the champ plays — primary roles dominate, off-roles are discounted.
+      // Choose the role to suggest in: best meta WEIGHTED BY how much it's actually a
+      // role the champ plays — primary roles dominate, off-roles discounted. A vouched
+      // pick wins selection for its player's role and isn't off-role-penalized.
+      const adjOf = (r, fr) => metaForRole(c.id, r).score * fr + (rolePrefTier(c.id, r) ? 0.5 : 0)
       let role = openMatch[0], m = metaForRole(c.id, role), fit = roleFit(c.id, role)
-      let bestAdj = m.score * fit
+      let bestAdj = adjOf(role, fit)
       for (const r of openMatch) {
-        const mm = metaForRole(c.id, r), fr = roleFit(c.id, r), adj = mm.score * fr
-        if (adj > bestAdj) { bestAdj = adj; m = mm; role = r; fit = fr }
+        const fr = roleFit(c.id, r), adj = adjOf(r, fr)
+        if (adj > bestAdj) { bestAdj = adj; m = metaForRole(c.id, r); role = r; fit = fr }
       }
+      if (rolePrefTier(c.id, role)) fit = Math.max(fit, 0.9)   // honor the vouch — no off-role penalty
       // Familiarity is ROLE-SCOPED: only the player who plays THIS role counts, so
       // a support's pool can't recommend a champ for mid. Dropped for enemy preds.
       const fam = isOurs ? bestFamiliarity(c.id, role) : { score: 0, player: null, entry: null }
