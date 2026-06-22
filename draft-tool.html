@@ -3127,7 +3127,13 @@ function getSuggestions() {
     // The enemy already filled every role this champ plays → they can't pick it →
     // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
     if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
-    const banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%` : (mBest.wr !== null ? `${mBest.wr.toFixed(1)}% WR` : 'Ban target')
+    // Sub tells you WHY it's a ban target (enemy's personal record if scouted; else the
+    // dominant reason) — not the generic solo-queue WR.
+    const banSub = ec ? `${ec.who[0]} ${ec.games}g · ${ec.wr}%`
+      : antiComp >= 0.05 ? 'counters your comp'
+      : threatToUs > 0.4 ? 'counters your picks'
+      : proBan >= 0.5 ? 'high meta priority'
+      : 'meta threat'
     let banReason = generateBanReason(c, ourPicks, theirPicks, enemyWants >= 0.5, comfortHit)
     if (antiComp >= 0.05 && !scoutNote) banReason = `Counters your ${ourArchForBan} comp — worth denying. ` + (banReason || '')
     if (scoutNote) banReason = banReason ? scoutNote + ' ' + banReason : scoutNote
