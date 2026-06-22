@@ -100,6 +100,9 @@ async function champSelect() {
 // live (Riot's post-game API omits it), so this is the only way to capture it.
 const DRAFTS_FILE = path.join(ROOT, 'live-drafts.json');
 const QUEUE_MODE = { 420: 'solo', 440: 'flex' /* , <ranked5 id>: 'ranked5' once known */ };
+// Roster account names (lowercased) — used to detect a FULL-roster game. Live drafting
+// always runs off MonkeyDAdam's client; teammates' names are visible in champ select.
+const ROSTER_NAMES = new Set(['thedrunkofrivia', 'teemoboy2011', 'styiebender', 'monkeydadam', 'yoitssam', 'lp fisherman']);
 const POS_ROLE = { top: 0, jungle: 1, mid: 2, adc: 3, support: 4 };
 let CHAMP_NAME = {};       // championId -> name (from Data Dragon, loaded at startup)
 let myPuuid = null;
@@ -137,6 +140,10 @@ function snapshotDraft(s) {
     if (slot >= 0 && c.championId) { side[sd].picks[slot] = nm(c.championId); side[sd].roles[slot] = POS2ROLE[c.assignedPosition] || side[sd].roles[slot]; }
   });
   fill(s.myTeam, true); fill(s.theirTeam, false);
+  // FULL-ROSTER check: are all 5 of our team roster accounts? (LP Fisherman subbing in
+  // still counts.) If 1+ random, we won't save it to the learning history.
+  const allies = (s.myTeam || []).map(c => (c.gameName || c.summonerName || '').toLowerCase()).filter(Boolean);
+  const fullRoster = (s.myTeam || []).length >= 5 && allies.filter(n => ROSTER_NAMES.has(n)).length >= 5;
   const banList = (arr) => (arr || []).filter(Boolean).map(nm);
   side[ourSide].bans = banList(s.bans && s.bans.myTeamBans);
   side[ourSide === 'blue' ? 'red' : 'blue'].bans = banList(s.bans && s.bans.theirTeamBans);
@@ -146,7 +153,7 @@ function snapshotDraft(s) {
     if (!act.completed || !act.championId) continue;
     sequence.push({ team: teamSideOf(act.actorCellId), type: act.type === 'ban' ? 'ban' : 'pick', champ: nm(act.championId) });
   }
-  return { ourSide, sequence, blue: side.blue, red: side.red };
+  return { ourSide, sequence, blue: side.blue, red: side.red, fullRoster };
 }
 async function resolveResult(a, gameId) {
   const mh = await lcuGet(a, '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=4');
@@ -174,9 +181,13 @@ async function watchTick() {
       if (!watch.pending.gameId && sess.gameData && sess.gameData.gameId) watch.pending.gameId = sess.gameData.gameId;
       watch.pending.inGame = true;
     } else if (watch.pending && watch.pending.inGame && !['GameStart', 'InProgress', 'ChampSelect'].includes(phase)) {
-      // Game ended — resolve W/L from match history (retry a few ticks until it lands).
+      // Game ended.
       const gid = watch.pending.gameId;
       if (gid && watch.savedIds.has(gid)) { watch.pending = null; watch.tries = 0; return; }
+      // Only SAVE full-roster games to the learning history (skip games with randoms) —
+      // the live draft/suggestions still ran, we just don't record this one.
+      if (!watch.pending.fullRoster) { console.log('skipped capture — not a full-roster game'); if (gid) watch.savedIds.add(gid); watch.pending = null; watch.tries = 0; return; }
+      // resolve W/L from match history (retry a few ticks until it lands).
       const result = await resolveResult(a, gid);
       watch.tries++;
       if (result !== undefined || watch.tries > 12) {
