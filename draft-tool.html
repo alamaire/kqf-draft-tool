@@ -489,7 +489,7 @@ const KQF_ROSTER = [
 // signature = standout best · strong = clearly good · playable = can play if needed.
 // Keyed by lowercase roster name; values are champion display names.
 const PLAYER_PREFS = {
-  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'], exclude: ['Ambessa', 'Jayce', 'Gangplank'] },
+  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas'] },
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
                      playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
   styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
@@ -498,12 +498,12 @@ const PLAYER_PREFS = {
   monkeydadam:     { adc: { signature: ['Miss Fortune', 'Jinx'], strong: ['Seraphine'],
                             playable: ['Ziggs', 'Sivir', 'Xayah', 'Ezreal', 'Ashe', "Kai'Sa", 'Lucian', 'Yunara'] },
                      mid: { strong: ['Ryze', 'Ziggs'],
-                            playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra', 'Annie'] },
+                            playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra', 'Annie', 'Swain'] },
                      exclude: ['Aphelios'],   // op.gg shows old games he doesn't actually play
                      style: 'flex ADC — comfortable on most; flexes mid (Ryze/Ziggs) when LP subs' },
   yoitssam:        { signature: ['Thresh'], strong: ['Braum', 'Rell', 'Leona'], playable: ['Rakan'], style: 'engage / catch supports' },
   // Sub — comes in for ADC; small, focused pool.
-  'lp fisherman':  { signature: ['Smolder', 'Ziggs'], playable: ['Corki'], style: 'sub — plays ADC' },
+  'lp fisherman':  { signature: ['Smolder', 'Ziggs'], playable: ['Corki', 'Swain'], exclude: ["Kog'Maw"], gated: ['ranked5'], style: 'sub — ADC; gated to pool in Ranked 5s, more flex in Flex' },
 }
 const PREF_ROLE_KEYS = ['top', 'jungle', 'mid', 'adc', 'support']
 // Combo-only picks: low priority UNLESS the partner is on our team (champ name → required ally).
@@ -3186,10 +3186,17 @@ function getSuggestions() {
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
                   + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
-      const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
-      const offTag = fit < 0.6 ? ' · off-role' : ''
-      const sub = role.toUpperCase() + offTag
-      picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
+      // GATED player: in the gated mode (e.g. Shane in Ranked 5's), only suggest champs
+      // in their vouched pool for their role — don't propose off-pool picks for them.
+      const rolePlayer = isOurs ? roster.find(pp => pp.active && pp.role !== 'sub' && pp.role === role) : null
+      const gatedOut = rolePlayer && PLAYER_PREFS[rolePlayer.name] && (PLAYER_PREFS[rolePlayer.name].gated || []).includes(mainTab)
+        && !prefTier(rolePlayer.name, c.id, role)
+      if (!gatedOut) {
+        const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
+        const offTag = fit < 0.6 ? ' · off-role' : ''
+        const sub = role.toUpperCase() + offTag
+        picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
+      }
     }
 
     // BANS — always our perspective. DON'T ban the strongest champion; ban what
