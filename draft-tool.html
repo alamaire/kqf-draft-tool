@@ -363,8 +363,7 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 <div class="hdr">
   <span class="hdr-title">DRAFT TOOL</span>
   <div class="main-tabs">
-    <div class="main-tab active" onclick="switchMainTab('solo')">Solo Queue</div>
-    <div class="main-tab" onclick="switchMainTab('flex')">Flex Queue</div>
+    <div class="main-tab active" onclick="switchMainTab('flex')">Flex Queue</div>
     <div class="main-tab" onclick="switchMainTab('ranked5')">Ranked 5's</div>
   </div>
   <div class="hdr-actions">
@@ -1251,7 +1250,7 @@ const META = {
 
 // ── App state ──────────────────────────────────────────────────────────────
 let CHAMPS = {}, CHAMP_LIST = [], TIER_DATA = {}, NAME_ID = {}
-let mainTab = 'solo'   // solo | flex | ranked5
+let mainTab = 'flex'   // flex | ranked5 (Solo Queue tab removed — roster drafts only)
 let sugTab  = 'picks'
 let roleFilter = ''
 let bansEnabled   = false   // solo/flex only — ranked5 always has bans
@@ -1581,8 +1580,8 @@ async function init() {
   })
   applyRosterToTeam()
   filterGrid()
-  // Initialise the default (Solo Queue) tab UI so the board/panel match the mode
-  switchMainTab('solo')
+  // Initialise the default (Flex) tab UI so the board/panel match the mode
+  switchMainTab('flex')
   // Silently auto-fetch any player without pool data
   autoLoadPools()
   // Remind to refresh the Riot key if the roster data is stale (key expires ~24h)
@@ -1717,7 +1716,7 @@ window.setPlayerTag = setPlayerTag
 function switchMainTab(tab) {
   mainTab = tab
   document.querySelectorAll('.main-tab').forEach((el,i)=>{
-    const tabs = ['solo','flex','ranked5']
+    const tabs = ['flex','ranked5']
     el.classList.toggle('active', tabs[i]===tab)
   })
   const strip = document.getElementById('roster-strip')
