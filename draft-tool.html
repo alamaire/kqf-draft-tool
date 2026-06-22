@@ -870,7 +870,7 @@ function rolePairSynergy(champId, role, allyByRole) {
 // "countered" by Vayne/Varus, which are its TOP-lane counters).
 function counteredByNames(champId, enemyPicks, role) {
   return [...new Set(enemyPicks
-    .filter(e => beatsInLane(e, champId) && (!role || champRoles(e).has(role)))
+    .filter(e => beatsInLane(e, champId) && (!role || lanesAs(e, role)))
     .map(e => CHAMPS[e]?.name).filter(Boolean))]
 }
 
@@ -1114,6 +1114,17 @@ function champRoles(champId) {
   for (const r of (td.roles || [])) s2.add(r)
   if (!s2.size) for (const t of (CHAMPS[champId]?.tags || [])) { const r = TAG_TO_ROLE[t]; if (r) s2.add(r) }
   return s2
+}
+// Does a champ MEANINGFULLY lane in `role`? Stricter than champRoles (0.15 cutoff) so a
+// marginal off-role (e.g. Sion-mid at 0.155) isn't treated as a real lane for COUNTER
+// matching — Sion is a top laner and won't lane vs our mid Cass. Primary role always counts.
+const LANE_PLAY_MIN = 0.30
+function lanesAs(champId, role) {
+  if (!role) return true
+  if (primaryRole(champId) === role) return true
+  const st = champStats(champId)
+  if (st && st[role]) return st[role].roleRate >= LANE_PLAY_MIN
+  return champRoles(champId).has(role)
 }
 // Per-role strength {wr, pr, score 0-1, rank}. Grounded in REAL op.gg data:
 // win rate weighted by matches played (pick rate = confidence), blended with the
@@ -2671,7 +2682,7 @@ function generateBanReason(champ, allyPicks, enemyPicks, isEnemyWant, comfortHit
   const beatsOurs = []
   for (const r in (ourByRole || {})) {
     const aId = ourByRole[r]
-    if (champRoles(champ.id).has(r) && (LANE_COUNTER_W[r] ?? 0.6) >= 0.4 && beatsInLane(champ.id, aId)) {
+    if (lanesAs(champ.id, r) && (LANE_COUNTER_W[r] ?? 0.6) >= 0.4 && beatsInLane(champ.id, aId)) {
       const nm = CHAMPS[aId] && CHAMPS[aId].name; if (nm) beatsOurs.push(nm)
     }
   }
@@ -3189,7 +3200,7 @@ function getSuggestions() {
     // is counter-relevant (jungle counters barely matter, scaled by LANE_COUNTER_W).
     let breakVal = 0
     for (const r in ourByRole) {
-      if (champRoles(c.id).has(r) && beatsInLane(c.id, ourByRole[r])) breakVal += 0.16 * (LANE_COUNTER_W[r] ?? 0.6)
+      if (lanesAs(c.id, r) && beatsInLane(c.id, ourByRole[r])) breakVal += 0.16 * (LANE_COUNTER_W[r] ?? 0.6)
     }
     const breakBonus = Math.min(0.24, breakVal)
     // Denying a strong option in a role the enemy STILL needs is the point of a ban.
@@ -3210,7 +3221,7 @@ function getSuggestions() {
         // like Vayne→mid-GP or Karma→jungle-Elise).
         if (p.role !== 'top' && p.role !== 'mid') continue
         const fav = rosterComfort(p.name) || (p.pool || [])[0]
-        if (fav && champRoles(c.id).has(p.role) && beatsInLane(c.id, fav.championId)) {
+        if (fav && lanesAs(c.id, p.role) && beatsInLane(c.id, fav.championId)) {
           punishesComfort = rosterComfort(p.name) ? 0.18 : 0.16; comfortHit = CHAMPS[fav.championId]?.name; break
         }
       }
