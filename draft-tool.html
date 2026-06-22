@@ -2247,7 +2247,9 @@ function bestFamiliarity(champId, role) {
     // no game data, since the team is telling us they play it). Doesn't override data.
     const tier = prefTier(p.name, champId, role)
     if (tier) {
-      const PT = { signature: [0.80, 0.10], strong: [0.58, 0.07], playable: [0.35, 0.04] }[tier]
+      // A TILT, not a lock: keeps comfort picks competitive + surfaces off-meta vouches,
+      // but stays low enough that a clearly better comp/synergy/meta pick still wins.
+      const PT = { signature: [0.68, 0.08], strong: [0.50, 0.06], playable: [0.32, 0.03] }[tier]
       f = Math.min(1, Math.max(f, PT[0]) + PT[1])
       if (!entry) entry = { championId: champId, games: (rg ? rg.games : 0) + (og ? og.games : 0), wins: 0, winRate: og ? og.winRate : (rg ? rg.winRate : 0), source: 'note' }
       entry.prefTier = tier
