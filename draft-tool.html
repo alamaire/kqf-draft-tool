@@ -1928,7 +1928,7 @@ function renderTracker(el) {
     if (sb.w + sb.l) sideTxt.push(`Blue ${sb.w}-${sb.l}`)
     if (sr.w + sr.l) sideTxt.push(`Red ${sr.w}-${sr.l}`)
     analysis = `<div class="ra-block">
-      <div class="ra-title">📊 Roster Analysis · ${ins.games} drafted game${ins.games !== 1 ? 's' : ''}</div>
+      <div class="ra-title">📊 Roster Analysis · ${modeLbl} · ${ins.games} game${ins.games !== 1 ? 's' : ''}</div>
       ${sideTxt.length ? `<div class="ra-row"><span class="ra-lbl">By side</span><span class="ra-val">${sideTxt.join(' · ')}</span></div>` : ''}
       ${raLine('Win on comp', ins.bestComps, c => `${c.k} ${c.w}-${c.l}`)}
       ${raLine('Lose on comp', ins.worstComps, c => `${c.k} ${c.w}-${c.l}`)}
@@ -1940,7 +1940,10 @@ function renderTracker(el) {
       ${raLine('Weak picks', ins.worstChamps, c => `${c.k} ${c.w}-${c.l}`)}
     </div>`
   } else {
-    analysis = `<div class="ra-block"><div class="ra-title">📊 Roster Analysis</div><div class="ra-row" style="color:var(--gray-l)">Builds as games are auto-captured (need ≥3 drafted games with both teams). ${ins.games} so far.</div></div>`
+    const emptyMsg = mainTab === 'ranked5'
+      ? "No Ranked 5's games yet — that queue launches Friday (Jun 26). Analysis builds once you play full-roster Ranked 5's."
+      : `Builds from full-roster ${modeLbl} games (need ≥3). ${ins.games} so far.`
+    analysis = `<div class="ra-block"><div class="ra-title">📊 Roster Analysis · ${modeLbl}</div><div class="ra-row" style="color:var(--gray-l)">${emptyMsg}</div></div>`
   }
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
@@ -2788,13 +2791,17 @@ function historySave(entry) {
 //   pair   — which of our champions win together (learned synergy)
 //   vs     — which of our champions beat specific enemy champions (learned counters)
 // Recomputed lazily and cached; invalidated whenever a draft is saved/deleted.
-let _histCache = null
+let _histCache = null, _histCacheMode = null
 function historyStats() {
-  if (_histCache) return _histCache
+  // Mode-SEPARATED: the Flex tab learns from / analyses Flex games only, Ranked 5's from
+  // Ranked 5's only (which is empty until that queue launches). Cache keyed by mode.
+  if (_histCache && _histCacheMode === mainTab) return _histCache
+  _histCacheMode = mainTab
   const champ = {}, pair = {}, vs = {}, enemy = {}, enemyArch = {}, side = {}, enemyTiming = {}, enemyPair = {}, games = []
   const bump = (o, k, win) => { (o[k] = o[k] || { w:0, l:0 })[win ? 'w' : 'l']++ }
   for (const d of historyLoad()) {
     if (d.result !== 'win' && d.result !== 'loss') continue
+    if ((d.mode || 'flex') !== mainTab) continue   // only this mode's games
     const our = d.ourSide || 'blue', them = our === 'blue' ? 'red' : 'blue'
     const win = d.result === 'win'
     const ourP = (d[our]?.picks || []).filter(Boolean)
@@ -2833,23 +2840,32 @@ function strugglesAgainst(minGames = 2) {
 }
 // Full compiled match-history analysis for the Tracker — deepens as games accumulate.
 function rosterInsights() {
-  const S = historyStats()
-  const rec = o => Object.values(o).reduce((a, r) => ({ w: a.w + r.w, l: a.l + r.l }), { w: 0, l: 0 })
+  const S = historyStats()                       // drafted captures (both teams), mode-filtered
   const wr = r => (r.w + r.l) ? Math.round(r.w / (r.w + r.l) * 100) : 0
-  const totalGames = (S.games || []).length
-  const topList = (obj, key, wantWin, min) => Object.entries(obj)
+  // Champ + comp records come from the Riot FULL-ROSTER games for THIS mode (authoritative
+  // W/L, mode-specific — Flex vs Ranked 5's). Struggle-vs analysis needs the enemy comp,
+  // so it comes from our drafted captures (also mode-filtered). Both are now per-mode, so
+  // the Flex tab analyses Flex only and Ranked 5's stays empty until that queue launches.
+  const b = rosterBucket(true)
+  const riot = (b && b.games) || []
+  const champ = {}, comps = {}
+  for (const g of riot) {
+    const ids = Object.values(g.picks).filter(Boolean)
+    for (const id of ids) { const n = CHAMPS[id] && CHAMPS[id].name; if (n) (champ[n] = champ[n] || { w: 0, l: 0 })[g.win ? 'w' : 'l']++ }
+    if (ids.length >= 4) { const a = compArchetype(profileOfIds(ids)); (comps[a] = comps[a] || { w: 0, l: 0 })[g.win ? 'w' : 'l']++ }
+  }
+  const topList = (obj, wantWin, min) => Object.entries(obj)
     .filter(([, r]) => r.w + r.l >= min && (wantWin ? r.w > r.l : r.l > r.w))
     .map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) }))
     .sort((a, b) => wantWin ? (b.wr - a.wr || b.w - a.w) : (a.wr - b.wr || b.l - a.l))
-  const awr = (typeof archetypeWinRates === 'function') ? archetypeWinRates().rec : {}
   return {
-    games: totalGames,
+    games: riot.length || (S.games || []).length,
     side: { blue: S.side.blue || { w: 0, l: 0 }, red: S.side.red || { w: 0, l: 0 } },
     struggles: strugglesAgainst(2),
-    bestComps: Object.entries(awr).filter(([, r]) => r.w + r.l >= 2 && r.w >= r.l).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => b.wr - a.wr),
-    worstComps: Object.entries(awr).filter(([, r]) => r.w + r.l >= 2 && r.l > r.w).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => a.wr - b.wr),
-    bestChamps: topList(S.champ, 'name', true, 2).slice(0, 6),
-    worstChamps: topList(S.champ, 'name', false, 2).slice(0, 5),
+    bestComps: Object.entries(comps).filter(([, r]) => r.w + r.l >= 2 && r.w >= r.l).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => b.wr - a.wr),
+    worstComps: Object.entries(comps).filter(([, r]) => r.w + r.l >= 2 && r.l > r.w).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => a.wr - b.wr),
+    bestChamps: topList(champ, true, 2).slice(0, 6),
+    worstChamps: topList(champ, false, 2).slice(0, 5),
   }
 }
 // Ban value from struggle history: how much facing this champ has cost us games.
@@ -3958,12 +3974,14 @@ function profileOfIds(ids) {
 }
 // Our win/loss record by comp ARCHETYPE across saved + auto-captured drafts. Tells
 // us which comp styles actually win for THIS roster. Cached with the history.
-let _archWRCache = null
+let _archWRCache = null, _archWRCacheMode = null
 function archetypeWinRates() {
-  if (_archWRCache) return _archWRCache
+  if (_archWRCache && _archWRCacheMode === mainTab) return _archWRCache
+  _archWRCacheMode = mainTab
   const rec = {}
   for (const d of historyLoad()) {
     if (d.result !== 'win' && d.result !== 'loss') continue
+    if ((d.mode || 'flex') !== mainTab) continue   // mode-separated (Flex vs Ranked 5's)
     const our = d.ourSide || 'blue'
     const ids = ((d[our] && d[our].picks) || []).map(n => NAME_ID[n]).filter(Boolean)
     if (ids.length < 4) continue                 // need a near-complete comp to classify
