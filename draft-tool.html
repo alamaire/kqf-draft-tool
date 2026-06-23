@@ -495,17 +495,17 @@ const KQF_ROSTER = [
 // signature = standout best · strong = clearly good · playable = can play if needed.
 // Keyed by lowercase roster name; values are champion display names.
 const PLAYER_PREFS = {
-  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar', "Rek'Sai", 'Zac'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas', 'Irelia', 'Riven', 'Tryndamere', 'Yone', 'Vayne', 'Gwen'] },
+  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar', "Rek'Sai", 'Zac'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas', 'Irelia', 'Riven', 'Tryndamere', 'Yone', 'Vayne', 'Gwen', 'Varus', 'Aatrox', 'Pantheon', 'Trundle'] },
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
-                     playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
+                     playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], exclude: ['Shaco'], style: 'carry' },
   styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
                      playable: ['Ahri', 'Gragas', 'Galio', 'Malphite', 'Cassiopeia', 'Fizz', 'Heimerdinger', 'Lissandra'], exclude: ['Zed', 'Zoe'], style: 'struggles in tough lanes — prefers safe/blind mids' },
   // Role-keyed: MonkeyDAdam mains ADC but flexes MID when LP Fisherman subs in.
   monkeydadam:     { adc: { signature: ['Miss Fortune', 'Jinx'], strong: ['Seraphine'],
                             playable: ['Ziggs', 'Sivir', 'Xayah', 'Ezreal', 'Ashe', "Kai'Sa", 'Lucian', 'Yunara'] },
                      mid: { strong: ['Ryze', 'Ziggs'],
-                            playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra', 'Annie', 'Swain', 'Fizz'] },
-                     exclude: ['Aphelios', 'Zed'],   // op.gg shows old games he doesn't actually play
+                            playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra', 'Annie', 'Swain', 'Fizz', 'Mel'] },
+                     exclude: ['Aphelios', 'Zed', 'Aurelion Sol', 'Aurora'],   // op.gg shows old games he doesn't actually play
                      style: 'flex ADC — comfortable on most; flexes mid (Ryze/Ziggs) when LP subs' },
   yoitssam:        { signature: ['Thresh'], strong: ['Braum', 'Rell', 'Leona'], playable: ['Rakan'], style: 'engage / catch supports' },
   // Sub — comes in for ADC; small, focused pool.
