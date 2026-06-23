@@ -552,7 +552,7 @@ function filterExcluded(playerName, pool) {
 const EMPTY_SET = new Set()
 // Champs whose game-changing (usually AoE engage/teamfight) ult Sylas loves to steal —
 // picking one into an enemy Sylas hands him a second one. A specific COMP counter.
-const SYLAS_STEAL = new Set([54,516,32,85,3,113,526,154,57,12,61,30,90,518,150,33,89])
+const SYLAS_STEAL = new Set([54,32,85,3,113,526,154,57,12,61,30,90,518,150,33,89])   // Ornn(516) removed — we don't care about Sylas stealing it
 // Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
 function kitCounterPenalty(champId, enemyPicks) {
   let pen = 0
@@ -3065,6 +3065,11 @@ function openRolesFor(side) {
 function roleSlotFor(side, id) {
   const roles = DS[side].roles, picks = DS[side].picks
   const open = r => { const i = roles.indexOf(r); return (i !== -1 && !picks[i]) ? i : -1 }
+  // For OUR roster, a vouched pick belongs in the player's role — GP is Blake's MID pick,
+  // so it slots to mid (not jungle/top), overriding op.gg's meta role.
+  if (mainTab !== 'solo' && side === mySide) {
+    for (const r of champPrefRoles(id)) { const i = open(r); if (i !== -1) return i }
+  }
   let i = open(primaryRole(id))               // ideal: champion's main role
   if (i !== -1) return i
   for (const r of champRoles(id)) { i = open(r); if (i !== -1) return i }  // any role it plays
@@ -3274,9 +3279,10 @@ function getSuggestions() {
       // piling on more of the same. Scales up as the comp fills (last damage slot matters most).
       let dmgBalance = 0, dmgNeed = null
       if (isOurs && pAlly.length >= 2) {
-        // Real damage carries only — exclude frontline tanks (they deal incidental damage
-        // in fights but aren't the team's AD/AP threat, e.g. Sejuani/Leona).
-        const dealers = pAlly.filter(id => damageThreat(id) >= 0.5 && tankiness(id) < 0.55).map(id => dmgType(CHAMPS[id]))
+        // Real damage carries only — exclude tagged tanks (Ornn/Leona/Sejuani/Zac) and
+        // low-damage supports/enchanters. itero tankiness is too noisy (it flags AD
+        // bruisers like GP and AP carries like Karthus/Ekko), so key off the Tank tag.
+        const dealers = pAlly.filter(id => damageThreat(id) >= 0.5 && !CHAMPS[id].tags.includes('Tank')).map(id => dmgType(CHAMPS[id]))
         const adN = dealers.filter(d => d === 'AD').length + dealers.filter(d => d === 'mixed').length * 0.5
         const apN = dealers.filter(d => d === 'AP').length + dealers.filter(d => d === 'mixed').length * 0.5
         const myD = dmgType(c), strength = Math.min(1, pAlly.length / 4)
