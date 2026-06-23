@@ -499,7 +499,7 @@ const PLAYER_PREFS = {
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
                      playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
   styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
-                     playable: ['Ahri', 'Gragas', 'Galio', 'Malphite', 'Cassiopeia', 'Fizz', 'Heimerdinger', 'Lissandra'], style: 'struggles in tough lanes — prefers safe/blind mids' },
+                     playable: ['Ahri', 'Gragas', 'Galio', 'Malphite', 'Cassiopeia', 'Fizz', 'Heimerdinger', 'Lissandra'], exclude: ['Zed'], style: 'struggles in tough lanes — prefers safe/blind mids' },
   // Role-keyed: MonkeyDAdam mains ADC but flexes MID when LP Fisherman subs in.
   monkeydadam:     { adc: { signature: ['Miss Fortune', 'Jinx'], strong: ['Seraphine'],
                             playable: ['Ziggs', 'Sivir', 'Xayah', 'Ezreal', 'Ashe', "Kai'Sa", 'Lucian', 'Yunara'] },
@@ -3268,9 +3268,29 @@ function getSuggestions() {
       const kitPen = isOurs ? kitCounterPenalty(c.id, pEnemy) : 0   // e.g. our big-ult pick into enemy Sylas
       // Item value: reward a tank into a one-sided enemy comp (stacks the matching resist).
       const itemBoost = (isOurs && enemySkew && tankiness(c.id, role) >= 0.6) ? 0.06 : 0
+      // DAMAGE BALANCE — if our damage dealers are all one type and we have ZERO of the
+      // other, the remaining slots MUST add the missing type or we have no AP/AD threat at
+      // all (enemy itemizes one resist for free). Strongly favor the missing type, penalize
+      // piling on more of the same. Scales up as the comp fills (last damage slot matters most).
+      let dmgBalance = 0, dmgNeed = null
+      if (isOurs && pAlly.length >= 2) {
+        // Real damage carries only — exclude frontline tanks (they deal incidental damage
+        // in fights but aren't the team's AD/AP threat, e.g. Sejuani/Leona).
+        const dealers = pAlly.filter(id => damageThreat(id) >= 0.5 && tankiness(id) < 0.55).map(id => dmgType(CHAMPS[id]))
+        const adN = dealers.filter(d => d === 'AD').length + dealers.filter(d => d === 'mixed').length * 0.5
+        const apN = dealers.filter(d => d === 'AP').length + dealers.filter(d => d === 'mixed').length * 0.5
+        const myD = dmgType(c), strength = Math.min(1, pAlly.length / 4)
+        if (adN >= 1.5 && apN < 1) {          // AD core, effectively no AP
+          if (myD === 'AP') { dmgBalance = 0.18 * strength; dmgNeed = 'AP' }
+          else if (myD === 'AD') dmgBalance = -0.18 * strength
+        } else if (apN >= 1.5 && adN < 1) {   // AP core, effectively no AD
+          if (myD === 'AD') { dmgBalance = 0.18 * strength; dmgNeed = 'AD' }
+          else if (myD === 'AP') dmgBalance = -0.18 * strength
+        }
+      }
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + itemBoost + comfortF * 0.03 - cByPen - offRolePen - kitPen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + itemBoost + dmgBalance + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
       // GATED player: in the gated mode (e.g. Shane in Ranked 5's), only suggest champs
       // in their vouched pool for their role — don't propose off-pool picks for them.
@@ -3278,7 +3298,8 @@ function getSuggestions() {
       const gatedOut = rolePlayer && PLAYER_PREFS[rolePlayer.name] && (PLAYER_PREFS[rolePlayer.name].gated || []).includes(mainTab)
         && !prefTier(rolePlayer.name, c.id, role)
       if (!gatedOut) {
-        const reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
+        let reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
+        if (dmgNeed) reason = `Your comp has no ${dmgNeed} damage — this adds it (so the enemy can't just stack one resist). ` + (reason || '')
         const offTag = fit < 0.6 ? ' · off-role' : ''
         const sub = role.toUpperCase() + offTag
         picks.push({ id: c.id, score: sc100, reason, sub, role, verdict: pickVerdict(sc100) })
