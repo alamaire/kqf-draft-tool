@@ -3044,7 +3044,16 @@ function primaryRole(champId) {
 // Roles a side has already filled (by each picked champion's primary role)
 function filledRoles(side) {
   const set = new Set()
-  for (const id of DS[side].picks) if (id) { const r = primaryRole(id); if (r) set.add(r) }
+  const picks = DS[side].picks, roles = DS[side].roles
+  // OUR side is slotted by player role, so trust the SLOT's role — an off-meta pick like
+  // Sejuani TOP marks TOP filled (not jungle). The enemy side has picks in draft order with
+  // unknown roles, so fall back to the champion's meta role there.
+  const ours = mainTab !== 'solo' && side === mySide
+  for (let i = 0; i < picks.length; i++) {
+    if (!picks[i]) continue
+    const r = (ours && roles[i]) ? roles[i] : primaryRole(picks[i])
+    if (r) set.add(r)
+  }
   return set
 }
 function openRolesFor(side) {
