@@ -486,7 +486,7 @@ const KQF_ROSTER = [
   { name:'styiebender',     display:'StyIebender',     defaultRole:'mid',     isSub:false, opggTag:'NA1'   },
   { name:'monkeydadam',     display:'MonkeyDAdam',     defaultRole:'adc',     isSub:false, opggTag:'NA1'   },
   { name:'yoitssam',        display:'YoitsSam',        defaultRole:'support', isSub:false, opggTag:'NA1'   },
-  { name:'lp fisherman',    display:'LP Fisherman',    defaultRole:'sub',     isSub:true,  opggTag:'NA1'   },
+  { name:'lp fisherman',    display:'LP Fisherman',    defaultRole:'adc',     isSub:true,  opggTag:'NA1'   },
 ]
 
 // Human roster intel — comfort/preference notes from the team that the raw stats
@@ -1521,6 +1521,18 @@ function teamRecord() {
 }
 // Custom players the user added (persisted in this browser). Merged with KQF_ROSTER.
 function customPlayers() { try { return JSON.parse(localStorage.getItem('kqf_custom_players') || '[]') } catch { return [] } }
+// Persist the LINEUP (who's active + each player's role) so the roster reloads exactly
+// as you last left it — sub someone in / bench someone / change a role and it sticks.
+const LINEUP_KEY = 'kqf_lineup'
+function saveLineup() {
+  try {
+    const m = {}
+    for (const p of roster) m[p.name] = { active: p.active, role: p.role }
+    localStorage.setItem(LINEUP_KEY, JSON.stringify(m))
+  } catch {}
+}
+function loadLineup() { try { return JSON.parse(localStorage.getItem(LINEUP_KEY) || 'null') } catch { return null } }
+
 const roster = []
 function rebuildRoster() {
   const all = [...KQF_ROSTER, ...customPlayers()]
@@ -1534,6 +1546,14 @@ function rebuildRoster() {
     poolLoading: false,
     poolError: null,
   })
+  // Restore the saved lineup (active + role) over the defaults.
+  const saved = loadLineup()
+  if (saved) for (const p of roster) {
+    const s = saved[p.name]
+    if (!s) continue
+    if (typeof s.active === 'boolean') p.active = s.active
+    if (s.role) p.role = s.role
+  }
 }
 rebuildRoster()
 
@@ -1961,6 +1981,7 @@ function renderTracker(el) {
 
 function setPlayerRole(idx, role) {
   roster[idx].role = role
+  saveLineup()                 // remember each player's role for next time
   applyRosterToTeam()
   render()
 }
@@ -1998,24 +2019,11 @@ function removeCustomPlayer(name) {
 window.openAddPlayer = openAddPlayer; window.closeAddPlayer = closeAddPlayer
 window.addCustomPlayer = addCustomPlayer; window.removeCustomPlayer = removeCustomPlayer
 
-// When LP Fisherman subs in he plays ADC, Adam flexes to MID, and the regular mid
-// (Blake) sits out — a complete, valid 5-stack so the draft auto-slots every pick into
-// the right role with NO manual assignment. Reverts cleanly when he subs back out.
-function applySubLineup(sub, on) {
-  if (sub.name !== 'lp fisherman') return        // custom subs keep their own role
-  const adam = roster.find(p => p.name === 'monkeydadam')
-  const blake = roster.find(p => p.name === 'styiebender')
-  if (on)  { sub.role = 'adc'; if (adam) adam.role = 'mid';  if (blake) blake.active = false }
-  else     { sub.role = 'sub'; if (adam) adam.role = 'adc';  if (blake) blake.active = true  }
-}
 function togglePlayer(idx) {
-  const p = roster[idx]
-  if (p.isSub) {
-    p.active = !p.active
-    applySubLineup(p, p.active)   // auto-arrange roles so the sub fits the 5-stack
-  } else {
-    p.active = !p.active
-  }
+  // The tab toggles in-lineup (on) vs benched (off). No auto-arranging — the user sets
+  // each player's role via the dropdown; whoever is active in a role gets slotted there.
+  roster[idx].active = !roster[idx].active
+  saveLineup()                 // remember the lineup for next time
   renderRoster()
   applyRosterToTeam()
   render()
