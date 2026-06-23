@@ -495,7 +495,7 @@ const KQF_ROSTER = [
 // signature = standout best · strong = clearly good · playable = can play if needed.
 // Keyed by lowercase roster name; values are champion display names.
 const PLAYER_PREFS = {
-  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas', 'Irelia', 'Riven', 'Tryndamere', 'Yone', 'Vayne', 'Gwen'] },
+  thedrunkofrivia: { signature: ['Shen'], strong: ['Sejuani', 'Nautilus', 'Ornn'], playable: ['Garen', 'Gnar', "Rek'Sai", 'Zac'], exclude: ['Ambessa', 'Jayce', 'Gangplank', 'Gragas', 'Irelia', 'Riven', 'Tryndamere', 'Yone', 'Vayne', 'Gwen'] },
   teemoboy2011:    { signature: ['Elise', 'Graves'], strong: ['Jarvan IV', 'Wukong'],
                      playable: ['Volibear', 'Diana', 'Malphite', 'Kindred', 'Viego', 'Nocturne', 'Ivern'], style: 'carry' },
   styiebender:     { signature: ['Gangplank'], strong: ['Lux'],
@@ -505,7 +505,7 @@ const PLAYER_PREFS = {
                             playable: ['Ziggs', 'Sivir', 'Xayah', 'Ezreal', 'Ashe', "Kai'Sa", 'Lucian', 'Yunara'] },
                      mid: { strong: ['Ryze', 'Ziggs'],
                             playable: ['Yone', 'Sylas', 'Tristana', 'Malphite', 'Ekko', 'Syndra', 'Annie', 'Swain', 'Fizz'] },
-                     exclude: ['Aphelios'],   // op.gg shows old games he doesn't actually play
+                     exclude: ['Aphelios', 'Zed'],   // op.gg shows old games he doesn't actually play
                      style: 'flex ADC — comfortable on most; flexes mid (Ryze/Ziggs) when LP subs' },
   yoitssam:        { signature: ['Thresh'], strong: ['Braum', 'Rell', 'Leona'], playable: ['Rakan'], style: 'engage / catch supports' },
   // Sub — comes in for ADC; small, focused pool.
@@ -3739,58 +3739,56 @@ function getDraftVerdict() {
   const rPicks = DS.red.picks.filter(Boolean).map(id => CHAMPS[id]).filter(Boolean)
   if (bPicks.length < 5 || rPicks.length < 5) return null
 
-  const bTags = bPicks.flatMap(c => c.tags)
-  const rTags = rPicks.flatMap(c => c.tags)
+  const bp = teamProfile('blue'), rp = teamProfile('red')
+  const bDraft = draftQualityScore(bp), rDraft = draftQualityScore(rp)
   let bScore = 0, rScore = 0
   const reasons = []
 
-  // Meta tier advantage
-  const bTier = bPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.tier||3), 0) / bPicks.length
-  const rTier = rPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.tier||3), 0) / rPicks.length
-  if (bTier < rTier - 0.3) { bScore += 2; reasons.push('Blue drafted higher meta-priority champions') }
-  else if (rTier < bTier - 0.3) { rScore += 2; reasons.push('Red drafted higher meta-priority champions') }
+  // PRIMARY signal = composition quality (frontline, two-sided damage, engage/CC, enough
+  // carries, a clear win condition, peel) — NOT meta tier. A higher-meta team is not
+  // automatically the better-drafted comp; the specific gaps below are WHY the score moves.
+  const qDiff = bDraft - rDraft
+  if (qDiff >= 6) { bScore += 2; reasons.push(`Blue's composition is more complete (${bDraft} vs ${rDraft})`) }
+  else if (qDiff <= -6) { rScore += 2; reasons.push(`Red's composition is more complete (${rDraft} vs ${bDraft})`) }
 
-  // Counter advantage — how well each team's champs beat the other's tags
+  // Counter advantage — class matchups across the two comps.
   const bCounterR = bPicks.reduce((s,c) => s + counterScore(c, rPicks.map(r=>r.id)), 0)
   const rCounterB = rPicks.reduce((s,c) => s + counterScore(c, bPicks.map(b=>b.id)), 0)
-  if (bCounterR > rCounterB + 0.8) { bScore += 2; reasons.push('Blue has counter pick advantage') }
-  else if (rCounterB > bCounterR + 0.8) { rScore += 2; reasons.push('Red has counter pick advantage') }
+  if (bCounterR > rCounterB + 0.8) { bScore += 2; reasons.push('Blue has the counter-pick edge in the class matchups') }
+  else if (rCounterB > bCounterR + 0.8) { rScore += 2; reasons.push('Red has the counter-pick edge in the class matchups') }
 
-  // Comp cohesion — a clear archetype scores better than "mixed"
-  const bArch = domArch(bTags.reduce((o,t)=>{o[t]=(o[t]||0)+1;return o},{}))
-  const rArch = domArch(rTags.reduce((o,t)=>{o[t]=(o[t]||0)+1;return o},{}))
-  if (bArch !== 'mixed' && rArch === 'mixed') { bScore++; reasons.push('Blue has a clearer win condition') }
-  else if (rArch !== 'mixed' && bArch === 'mixed') { rScore++; reasons.push('Red has a clearer win condition') }
-
-  // Comp gaps — missing key roles
-  if (!bTags.includes('Tank')) { rScore++; reasons.push('Blue has no tank — vulnerable to dive') }
-  if (!rTags.includes('Tank')) { bScore++; reasons.push('Red has no tank — vulnerable to engage') }
-  if (!bTags.includes('Marksman') && !bTags.includes('Mage')) { rScore++; reasons.push('Blue lacks sustained damage') }
-  if (!rTags.includes('Marksman') && !rTags.includes('Mage')) { bScore++; reasons.push('Red lacks sustained damage') }
-
-  // Pro presence
-  const bPro = bPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.pro||0), 0)
-  const rPro = rPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.pro||0), 0)
-  if (bPro > rPro + 3) { bScore++; reasons.push('Blue drafted more pro-validated picks') }
-  else if (rPro > bPro + 3) { rScore++; reasons.push('Red drafted more pro-validated picks') }
-
-  // Real (itero) damage balance + threat saturation + timing
-  const bp = teamProfile('blue'), rp = teamProfile('red')
+  // Specific composition gaps (the concrete reasons behind the quality scores).
+  if (!bp.hasTank && (bp.frontline||0) === 0) { rScore++; reasons.push('Blue has no frontline — its carries get dived and bursted') }
+  if (!rp.hasTank && (rp.frontline||0) === 0) { bScore++; reasons.push('Red has no frontline — its carries get dived and bursted') }
   const lop = p => p.adPct >= 82 || p.apPct >= 82
-  if (lop(bp) && !lop(rp)) { rScore++; reasons.push(`Blue's damage is one-sided (${bp.adPct}/${bp.apPct} AD/AP) and easily itemized against`) }
-  else if (lop(rp) && !lop(bp)) { bScore++; reasons.push(`Red's damage is one-sided (${rp.adPct}/${rp.apPct} AD/AP) and easily itemized against`) }
+  if (lop(bp) && !lop(rp)) { rScore++; reasons.push(`Blue's damage is one-sided (${bp.adPct}% AD / ${bp.apPct}% AP) — one resist shuts it down`) }
+  else if (lop(rp) && !lop(bp)) { bScore++; reasons.push(`Red's damage is one-sided (${rp.adPct}% AD / ${rp.apPct}% AP) — one resist shuts it down`) }
+  else if ((!bp.hasAD || !bp.hasAP) && rp.hasAD && rp.hasAP) { rScore++; reasons.push(`Blue lacks ${bp.hasAP ? 'AD' : 'AP'} damage`) }
+  else if ((!rp.hasAD || !rp.hasAP) && bp.hasAD && bp.hasAP) { bScore++; reasons.push(`Red lacks ${rp.hasAP ? 'AD' : 'AP'} damage`) }
+  if ((bp.engage >= 1 || bp.cc >= 2) && rp.engage === 0 && rp.cc <= 1) { bScore++; reasons.push('Blue can force fights (engage/CC); Red has no reliable initiation') }
+  else if ((rp.engage >= 1 || rp.cc >= 2) && bp.engage === 0 && bp.cc <= 1) { rScore++; reasons.push('Red can force fights (engage/CC); Blue has no reliable initiation') }
   if (bp.threats >= 3 && rp.threats <= 1) { bScore++; reasons.push('Blue has more carry threats to spread enemy focus') }
   else if (rp.threats >= 3 && bp.threats <= 1) { rScore++; reasons.push('Red has more carry threats to spread enemy focus') }
-  // Timing context (not scored — just flags who must do what)
+
+  // Timing context (not scored — just flags who must do what).
   if (bp.timing !== rp.timing && bp.timing !== 'balanced' && rp.timing !== 'balanced')
     reasons.push(`Blue ${bp.timing === 'scaling' ? 'scales' : 'is early-game'} vs Red ${rp.timing === 'scaling' ? 'scales' : 'is early-game'} — ${bp.timing === 'scaling' ? 'Blue must survive early' : 'Blue must close before late'}`)
 
-  const bDraft = draftQualityScore(bp), rDraft = draftQualityScore(rp)
+  // Meta/pro priority is only a TIEBREAKER when composition is otherwise even — never the headline.
+  if (Math.abs(bScore - rScore) < 1) {
+    const bPro = bPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.pro||0), 0)
+    const rPro = rPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.pro||0), 0)
+    const bTier = bPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.tier||3), 0) / bPicks.length
+    const rTier = rPicks.reduce((s,c) => s + (TIER_DATA[c.id]?.tier||3), 0) / rPicks.length
+    if (bPro > rPro + 4 || bTier < rTier - 0.4) { bScore += 0.5; reasons.push('Even comps — Blue edges it on individual champ strength / meta priority') }
+    else if (rPro > bPro + 4 || rTier < bTier - 0.4) { rScore += 0.5; reasons.push('Even comps — Red edges it on individual champ strength / meta priority') }
+  }
+
   const diff = bScore - rScore
   const side = diff > 0 ? 'Blue' : diff < 0 ? 'Red' : null
   const sideColor = side === 'Blue' ? 'var(--blue)' : 'var(--red)'
   const abs = Math.abs(diff)
-  const strength = abs >= 4 ? 'dominant' : abs >= 2 ? 'clear' : abs === 1 ? 'slight' : ''
+  const strength = abs >= 4 ? 'dominant' : abs >= 2 ? 'clear' : abs >= 1 ? 'slight' : 'marginal'
 
   let verdict = '', verdictColor = 'var(--gold)'
   if (!side) {
@@ -3806,21 +3804,25 @@ function getDraftVerdict() {
     return true
   }).slice(0, 3)
   const extra = topReasons.length ? ' ' + topReasons.join('. ') + '.' : ''
-  const scoreLine = `Draft quality — Blue ${bDraft}/100 · Red ${rDraft}/100. `
+  const scoreLine = `Draft quality (composition) — Blue ${bDraft}/100 · Red ${rDraft}/100. `
 
   return { verdict: scoreLine + verdict + extra, verdictColor }
 }
 // Overall draft-quality score 0..100 from the universal checklist (frontline,
 // mixed damage, engage/CC, threat saturation, clear win condition, peel).
 function draftQualityScore(p) {
+  if (!p.n) return 0
   let s = 50
-  s += (p.hasTank || (p.frontline || 0) >= 1) ? 9 : -12       // frontline
-  s += (p.hasAD && p.hasAP) ? 9 : -7                          // mixed damage
-  if (p.adPct >= 85 || p.apPct >= 85) s -= 6                  // one-sided
-  s += (p.engage >= 1 || p.cc >= 2) ? 7 : -9                  // initiation
-  s += (p.threats || 0) >= 2 ? 9 : (p.threats || 0) <= 1 ? -7 : 0   // threat saturation
-  s += compArchetype(p) !== 'Flexible' ? 7 : -3              // clear win condition
-  if (p.hyper && p.peel >= 1) s += 4                          // protect the hypercarry
+  s += (p.hasTank || (p.frontline || 0) >= 1) ? 9 : -12       // frontline to absorb + enable engage
+  if ((p.frontline || 0) >= 2) s += 3                          // a real front line, not just one body
+  s += (p.hasAD && p.hasAP) ? 9 : -8                          // two-sided damage (can't be one-resisted)
+  if (p.adPct >= 85 || p.apPct >= 85) s -= 6                  // one-sided damage profile
+  s += (p.engage >= 1 || p.cc >= 2) ? 7 : -9                  // initiation / lockdown
+  if ((p.cc || 0) >= 3) s += 3                                 // heavy CC chain
+  s += (p.threats || 0) >= 2 ? 9 : (p.threats || 0) <= 1 ? -8 : 0   // enough carries, not too few
+  s += compArchetype(p) !== 'Flexible' ? 7 : -3              // a clear, executable win condition
+  if (p.hyper) s += (p.peel || 0) >= 1 ? 4 : -5               // protect the hypercarry — or it's exposed
+  else if ((p.peel || 0) >= 1) s += 2                         // some peel/disengage to survive
   return Math.max(0, Math.min(100, Math.round(s)))
 }
 
@@ -3876,13 +3878,15 @@ function archetypeCounterBoost(champId, enemyArch) {
 // Our damage carries that an enemy pick HARD-COUNTERS (draft sanity check #8 — "are
 // any of our carries hard-countered?"). Returns [{champ, by}].
 function counteredCarries(ourSide, enemySide) {
-  const ourIds = DS[ourSide].picks.filter(Boolean)
-  const enemyIds = DS[enemySide].picks.filter(Boolean)
+  const ourPicks = DS[ourSide].picks, ourRoles = DS[ourSide].roles
   const out = []
-  for (const id of ourIds) {
-    if (damageThreat(id) < 0.55) continue                 // only real carries
-    const by = enemyIds.find(e => beatsInLane(e, id))
-    if (by) out.push({ champ: id, by })
+  for (let i = 0; i < ourPicks.length; i++) {
+    const id = ourPicks[i]
+    if (!id || damageThreat(id) < 0.55) continue          // only real carries
+    // SAME-LANE only: a counter matters when it's the actual lane opponent. Olaf top does
+    // NOT "counter" our Wukong jungle — only the enemy in our carry's own lane does.
+    const opp = laneOpponent(ourRoles[i], enemySide)
+    if (opp && beatsInLane(opp, id)) out.push({ champ: id, by: opp })
   }
   return out
 }
