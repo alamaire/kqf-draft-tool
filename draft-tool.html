@@ -553,6 +553,11 @@ const EMPTY_SET = new Set()
 // Champs whose game-changing (usually AoE engage/teamfight) ult Sylas loves to steal —
 // picking one into an enemy Sylas hands him a second one. A specific COMP counter.
 const SYLAS_STEAL = new Set([54])   // Malphite only — we only care about Sylas stealing Malphite's ult
+// ROSTER NOTE (light awareness, not a heavy weight): the KQF roster tends to struggle vs
+// scaling split-pushers — champs that out-1v1 a sidelane and take towers as the game goes
+// long. Surface a note when the enemy drafts one + a tiny ban nudge.
+const SPLIT_PUSHERS = new Set(['Tryndamere', 'Jax', 'Fiora', 'Camille', 'Nasus', 'Yorick', 'Kayle', 'Master Yi', 'Vayne', 'Trundle', 'Kassadin', 'Sion', 'Gangplank', 'Illaoi', 'Quinn'])
+function enemySplitPushers(side) { return DS[side].picks.filter(Boolean).filter(id => SPLIT_PUSHERS.has(CHAMPS[id] && CHAMPS[id].name)) }
 // Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
 function kitCounterPenalty(champId, enemyPicks) {
   let pen = 0
@@ -3410,8 +3415,10 @@ function getSuggestions() {
     const antiComp = ourArchForBan ? archetypeCounterBoost(c.id, ourArchForBan) : 0
     // Learned STRUGGLE: champs our roster keeps losing to (from history) are ban-worthy.
     const struggle = (mainTab === 'ranked5' || mainTab === 'flex') ? struggleBanBoost(c.id) : 0
+    // Light roster note: scaling split-pushers give us trouble — small ban nudge, not heavy.
+    const splitPush = SPLIT_PUSHERS.has(c.name) ? 0.05 : 0
     let banScore = threatToUs * protectW + breakBonus + openBonus
-                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.8 + struggle + sylasProtect
+                 + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.8 + struggle + sylasProtect + splitPush
                  + mBest.score * 0.07 + proBan * 0.13 + prScore * 0.04   // WR is a light baseline; counters lead
     // ROLE-AWARE BAN FILTER: if the enemy already filled every role this champ plays,
     // they CAN'T pick it → banning it is wasted. Drop it from the ban list entirely
@@ -4104,6 +4111,9 @@ function renderComp() {
     // ITEM VALUE — warn when OUR comp is one-sided (enemy itemizes one resist for free).
     const ourSkew = dmgSkew(p)
     if (ourSkew) html += `<div class="wc-block ${usCls}"><div class="wc-lbl" style="color:#E87A65">⚠ One-sided damage</div><div class="wc-item">You're ${ourSkew.pct}% ${ourSkew.type} — they'll itemize ${ourSkew.resist} cheaply against your whole team. Add ${ourSkew.type === 'AD' ? 'AP' : 'AD'} damage.</div></div>`
+    // ROSTER NOTE — we tend to struggle vs scaling split-pushers; flag if the enemy has one.
+    const sp = enemySplitPushers(otherSide())
+    if (sp.length) html += `<div class="wc-block ${themCls}"><div class="wc-lbl" style="color:var(--gray-l)">📝 Roster note</div><div class="wc-item">We tend to struggle vs scaling split-pushers — ${sp.map(id => CHAMPS[id].name).join(', ')} can 1v1 a sidelane & take towers late. Match the sidelane, group for objectives, or keep pick/wave-clear pressure.</div></div>`
     // Draft sanity check #8 — our carries that an enemy pick hard-counters.
     const cc = counteredCarries(mySide, otherSide())
     if (cc.length) {
