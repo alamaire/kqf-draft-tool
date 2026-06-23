@@ -552,7 +552,7 @@ function filterExcluded(playerName, pool) {
 const EMPTY_SET = new Set()
 // Champs whose game-changing (usually AoE engage/teamfight) ult Sylas loves to steal —
 // picking one into an enemy Sylas hands him a second one. A specific COMP counter.
-const SYLAS_STEAL = new Set([54,32,85,3,113,526,154,57,12,61,30,90,518,150,33,89])   // Ornn(516) removed — we don't care about Sylas stealing it
+const SYLAS_STEAL = new Set([54])   // Malphite only — we only care about Sylas stealing Malphite's ult
 // Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
 function kitCounterPenalty(champId, enemyPicks) {
   let pen = 0
