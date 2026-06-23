@@ -717,6 +717,14 @@ function tankiness(champId, role) {
   const t = CHAMPS[champId]?.tags || []
   return t.includes('Tank') ? 0.85 : t.includes('Fighter') ? 0.55 : 0.2
 }
+// Rough melee classifier (no attack-range data is baked): a champ counts as melee if it's
+// a Fighter/Tank/Assassin and not a Marksman. Used to gate Swain — only flex him in vs a
+// melee-heavy enemy, where his E pull + drain sustain shine.
+function isMelee(champId) {
+  const t = CHAMPS[champId]?.tags || []
+  if (t.includes('Marksman')) return false
+  return t.includes('Fighter') || t.includes('Tank') || t.includes('Assassin')
+}
 // Sustained DPS / %HP champs that actually melt tanks in extended fights — NOT
 // burst mages or utility (so Annie/Neeko/Galio are correctly excluded).
 // Vayne, Kog'Maw, Fiora, Vladimir, Cassiopeia, Gwen, Teemo, Illaoi, Varus, Belveth.
@@ -1847,7 +1855,7 @@ function renderRoster() {
     // Toggle button (active/benched)
     const toggleBtn = `<div class="toggle-btn ${isActive?'on':'off'}" onclick="togglePlayer(${i})" title="${isActive?'Click to bench':'Click to activate'}"></div>`
 
-    const cardClass = `player-card ${isActive?'active-player':''} ${isSub?'sub-card':''} ${!isActive?'out':''}`
+    const cardClass = `player-card ${isActive?'active-player':''} ${!isActive?'out':''}`
 
     // Pool icons (top 10) — source depends on the Pool view toggle (OP.GG vs Draft Tool)
     const viewPool = displayPool(p)
@@ -1882,7 +1890,6 @@ function renderRoster() {
       </div>
       <div class="pc-bottom">
         ${isActive ? roleDropdown : `<span class="pc-role-badge sub">BENCHED</span>`}
-        ${isSub && isActive ? '<span class="sub-label">SUB</span>' : ''}
       </div>
       <div class="opgg-row">
         <span style="color:var(--gray);font-size:9px">#</span>
@@ -3326,7 +3333,10 @@ function getSuggestions() {
       const rolePlayer = isOurs ? roster.find(pp => pp.active && pp.role !== 'sub' && pp.role === role) : null
       const gatedOut = rolePlayer && PLAYER_PREFS[rolePlayer.name] && (PLAYER_PREFS[rolePlayer.name].gated || []).includes(mainTab)
         && !prefTier(rolePlayer.name, c.id, role)
-      if (!gatedOut) {
+      // Swain is a situational flex — only suggest him when the enemy is melee-heavy
+      // (≥4 melee champs), where his pull + drain dominate. Otherwise don't propose him.
+      const swainBlocked = isOurs && c.name === 'Swain' && pEnemy.filter(isMelee).length < 4
+      if (!gatedOut && !swainBlocked) {
         let reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
         if (dmgNeed) reason = `Your comp has no ${dmgNeed} damage — this adds it (so the enemy can't just stack one resist). ` + (reason || '')
         const offTag = fit < 0.6 ? ' · off-role' : ''
