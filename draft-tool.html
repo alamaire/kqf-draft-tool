@@ -1998,22 +1998,21 @@ function removeCustomPlayer(name) {
 window.openAddPlayer = openAddPlayer; window.closeAddPlayer = closeAddPlayer
 window.addCustomPlayer = addCustomPlayer; window.removeCustomPlayer = removeCustomPlayer
 
+// When LP Fisherman subs in he plays ADC, Adam flexes to MID, and the regular mid
+// (Blake) sits out — a complete, valid 5-stack so the draft auto-slots every pick into
+// the right role with NO manual assignment. Reverts cleanly when he subs back out.
+function applySubLineup(sub, on) {
+  if (sub.name !== 'lp fisherman') return        // custom subs keep their own role
+  const adam = roster.find(p => p.name === 'monkeydadam')
+  const blake = roster.find(p => p.name === 'styiebender')
+  if (on)  { sub.role = 'adc'; if (adam) adam.role = 'mid';  if (blake) blake.active = false }
+  else     { sub.role = 'sub'; if (adam) adam.role = 'adc';  if (blake) blake.active = true  }
+}
 function togglePlayer(idx) {
   const p = roster[idx]
-  // In ranked5: only allow toggling the sub, or bench one main to activate sub
-  // In flex: freely toggle anyone
-  if (mainTab === 'ranked5') {
-    if (p.isSub) {
-      // Toggle sub: if activating, need to bench a main
-      if (!p.active) {
-        // Activate sub — prompt which main sits out? For now just activate
-        p.active = true
-      } else {
-        p.active = false
-      }
-    } else {
-      p.active = !p.active
-    }
+  if (p.isSub) {
+    p.active = !p.active
+    applySubLineup(p, p.active)   // auto-arrange roles so the sub fits the 5-stack
   } else {
     p.active = !p.active
   }
