@@ -1279,8 +1279,13 @@ const ROLE_TAGS = {
   support: ['Support','Tank','Mage'],
 }
 
-// Pick-only order (used when bans are off, or for solo/flex ban-mode picks)
-const PICKS_ONLY_ORDER = [
+// FLEX queue format: all 10 bans up front (alternating, 5 per team), THEN the pick snake.
+const FLEX_ORDER = [
+  {team:'blue',type:'ban',slot:0},{team:'red',type:'ban',slot:0},
+  {team:'blue',type:'ban',slot:1},{team:'red',type:'ban',slot:1},
+  {team:'blue',type:'ban',slot:2},{team:'red',type:'ban',slot:2},
+  {team:'blue',type:'ban',slot:3},{team:'red',type:'ban',slot:3},
+  {team:'blue',type:'ban',slot:4},{team:'red',type:'ban',slot:4},
   {team:'blue',type:'pick',slot:0},{team:'red',type:'pick',slot:0},
   {team:'red', type:'pick',slot:1},{team:'blue',type:'pick',slot:1},
   {team:'blue',type:'pick',slot:2},{team:'red', type:'pick',slot:2},
@@ -1289,9 +1294,9 @@ const PICKS_ONLY_ORDER = [
 ]
 
 function getActiveDraftOrder() {
-  // Solo removed — Flex and Ranked 5's are both structured team drafts WITH bans
-  // (so live bans auto-fill and ban suggestions show in both).
-  return DRAFT_ORDER
+  // Ranked 5's = tournament draft (DRAFT_ORDER: 2 ban phases interleaved with picks).
+  // Flex = soloqueue format (FLEX_ORDER: all 10 bans first, then the pick snake).
+  return mainTab === 'ranked5' ? DRAFT_ORDER : FLEX_ORDER
 }
 
 // Roster state — one entry per KQF member
@@ -3339,9 +3344,10 @@ function getSuggestions() {
     let banScore = threatToUs * protectW + breakBonus + openBonus
                  + enemyWants * 0.20 + punishesComfort + scoutBoost * 0.6 + antiComp * 1.8 + struggle + sylasProtect
                  + mBest.score * 0.07 + proBan * 0.13 + prScore * 0.04   // WR is a light baseline; counters lead
-    // The enemy already filled every role this champ plays → they can't pick it →
-    // banning it is near-useless. Strongly deprioritize (don't ban into filled roles).
-    if (theirPicks.length >= 1 && !canBePicked) banScore *= 0.3
+    // ROLE-AWARE BAN FILTER: if the enemy already filled every role this champ plays,
+    // they CAN'T pick it → banning it is wasted. Drop it from the ban list entirely
+    // (e.g. once their top is locked, stop suggesting top-laner bans).
+    const wastedBan = !enemyBanTurn && theirPicks.length >= 1 && !canBePicked
     // Sub tells you WHY it's a ban target (enemy's personal record if scouted; else the
     // dominant reason) — not the generic solo-queue WR.
     const sr = struggle > 0 ? historyStats().enemy[CHAMPS[c.id].name] : null
@@ -3371,7 +3377,10 @@ function getSuggestions() {
           : `A strong meta pick they may remove pre-emptively.`
       }
     }
-    bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
+    // Only suggest bans that matter: enemy can still pick it, and it scored > 0
+    // (enemyBanTurn already zeroes champs we can't pick in an open role).
+    if (!wastedBan && banScore > 0)
+      bans.push({ id: c.id, score: Math.round(banScore * 100), reason: banReason, sub: banSub })
   }
 
   picks.sort((a, b) => b.score - a.score)
@@ -3492,7 +3501,8 @@ function renderPhase() {
   }
   const step = order[DS.step]
   const isBanStep = step.type === 'ban'
-  const phaseNum = DS.step < 12 ? 1 : 2
+  // Ranked 5's has two ban phases; Flex is a single ban phase up front.
+  const phaseNum = mainTab === 'ranked5' ? (DS.step < 12 ? 1 : 2) : 1
   const b = document.getElementById('phase-badge')
   // Manual ban-fill mode is retired (Solo removed) — structured draft handles bans.
   if (mainTab === 'solo' && bansEnabled && banSideActive) {

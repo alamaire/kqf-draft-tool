@@ -38,9 +38,11 @@ const POS = { TOP: 'top', JUNGLE: 'jungle', MIDDLE: 'mid', BOTTOM: 'adc', UTILIT
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const GAP = 800;
 
+let _lastStatus = 0;   // HTTP status of the most recent getJSON call (for diagnostics)
 async function getJSON(url) {
   for (let i = 0; i < 3; i++) {
     const r = await fetch(url, H);
+    _lastStatus = r.status;
     if (r.status === 200) return r.json();
     if (r.status === 429) { await sleep(2000); continue; }
     return null;
@@ -59,14 +61,28 @@ function modeFor(q) { return q === FLEX_QUEUE ? 'flex' : q === RANKED5_QUEUE ? '
 
 async function main() {
   const puuidToKey = {};
+  const fails = [];
   for (const p of ROSTER) {
     const a = await getJSON(`https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(p.name)}/${encodeURIComponent(p.tag)}`);
-    if (a && a.puuid) puuidToKey[a.puuid] = p.key;
+    if (a && a.puuid) { puuidToKey[a.puuid] = p.key; console.log('  ✓', `${p.name}#${p.tag}`); }
+    else { fails.push({ name: `${p.name}#${p.tag}`, status: _lastStatus }); console.log('  ✗', `${p.name}#${p.tag}`, '→ HTTP', _lastStatus); }
     await sleep(GAP);
   }
   console.log('resolved', Object.keys(puuidToKey).length, '/', ROSTER.length, 'puuids');
-  // A bad/expired key resolves 0 puuids — fail loudly instead of overwriting good data.
-  if (Object.keys(puuidToKey).length === 0) { console.error('No puuids resolved — key is invalid or expired. Keeping existing roster-data.js.'); process.exit(1); }
+  // A bad/expired key resolves 0 puuids — fail loudly with the ACTUAL reason instead of
+  // overwriting good data. Distinguish bad key (401/403) from name change (404) / limit (429).
+  if (Object.keys(puuidToKey).length === 0) {
+    const s = (fails[0] && fails[0].status) || 0;
+    const why = (s === 401 || s === 403)
+      ? `HTTP ${s} — your Riot API key is INVALID or EXPIRED. Dev keys expire every 24h: go to https://developer.riotgames.com/, copy the fresh "Development API Key" (whole RGAPI-… string), and paste it again.`
+      : s === 404
+      ? `HTTP 404 — the Riot IDs weren't found (a name/tag may have changed). Check the names/tags in scripts/refresh-roster.js.`
+      : s === 429
+      ? `HTTP 429 — rate limited. Wait ~1 minute, then try again.`
+      : `No response from Riot (HTTP ${s || 'n/a'}) — check your internet connection.`;
+    console.error('No puuids resolved. ' + why + ' Keeping existing roster-data.js.');
+    process.exit(1);
+  }
 
   const matchCount = {};
   for (const puuid of Object.keys(puuidToKey)) {
