@@ -1377,13 +1377,15 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
+const APP_BUILD = '2026-06-24.2'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
   const body = document.getElementById('rk-body')
-  if (body) body.textContent = _companionPresent
+  if (body) body.innerHTML = (_companionPresent
     ? `Your Riot dev key expires every 24h. The roster match-history ${ageTxt} — paste a fresh key and it refreshes live (~1 min).`
-    : `Your Riot dev key expires every 24h. The roster match-history ${ageTxt}, so it needs a fresh pull to keep learning from new games.`
+    : `Your Riot dev key expires every 24h. The roster match-history ${ageTxt}, so it needs a fresh pull to keep learning from new games.`)
+    + ` <span style="opacity:.5;font-size:9px">build ${APP_BUILD}</span>`
   const note = document.getElementById('rk-note')
   if (note) note.textContent = _companionPresent
     ? 'Companion detected — pasting your key re-pulls the roster data and reloads.'
@@ -1395,29 +1397,39 @@ function checkRosterFreshness() {
   let dismissed = null; try { dismissed = localStorage.getItem('rk_dismissed') } catch {}
   if (rosterDataAgeHours() >= 20 && dismissed !== new Date().toDateString()) openRiotKeyModal()
 }
+let _refreshing = false
 async function saveRiotKey() {
+  if (_refreshing) return                                   // ignore double-clicks (concurrent pulls rate-limit each other)
   const v = document.getElementById('rk-input').value.trim()
   const note = document.getElementById('rk-note')
-  if (!/^RGAPI-/.test(v)) { note.textContent = "That doesn't look like an RGAPI-… key."; return }
+  if (!/^RGAPI-[0-9a-f-]{20,}$/i.test(v)) { note.textContent = "That doesn't look like a full RGAPI-… key — copy the WHOLE string from the Riot page."; return }
   try { localStorage.setItem('riot_key', v) } catch {}
-  if (!_companionPresent) {
-    note.textContent = '✓ Saved in your browser. Run the companion (node companion.js) to refresh the roster data live with it.'
+  // Re-verify the companion is actually running RIGHT NOW — it may have been closed since the
+  // page loaded (this is the usual cause of a confusing failure). If it's down, say so plainly.
+  let live = false
+  try { const p = await fetch('/api/lcu', { cache: 'no-store' }); live = p.ok } catch {}
+  if (!live) {
+    _companionPresent = false
+    note.innerHTML = "⚠ The companion isn't running, so the key can't refresh anything. Open the <b>Start Draft Tool</b> window, then click Save again."
     return
   }
-  // Companion is running → re-pull the roster data live with the pasted key.
-  note.textContent = '⏳ Refreshing roster data… (~1 min, fetching your games from Riot)'
-  try {
-    const r = await fetch('/api/refresh-roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: v }) })
-    const d = await r.json().catch(() => ({}))
-    if (r.ok && d.ok) {
-      note.textContent = '✓ Roster data refreshed — reloading…'
-      setTimeout(() => location.reload(), 900)
-    } else {
-      note.textContent = '⚠ ' + (d.error || 'Refresh failed — the key may be expired. Grab a fresh one above.')
-    }
-  } catch (e) {
-    note.textContent = '⚠ Could not reach the companion. Is node companion.js still running?'
+  _companionPresent = true
+  const masked = v.slice(0, 11) + '…' + v.slice(-4)
+  const attempt = async () => {
+    try {
+      const r = await fetch('/api/refresh-roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ key: v }) })
+      const d = await r.json().catch(() => ({}))
+      return { ok: r.ok && d.ok, status: r.status, err: d.error || '' }
+    } catch (e) { return { ok: false, status: 0, err: 'lost connection to companion' } }
   }
+  _refreshing = true
+  note.textContent = '⏳ Refreshing roster data with this key… (~1 min)'
+  let res = await attempt()
+  if (!res.ok && res.status !== 0) { await new Promise(r => setTimeout(r, 2000)); res = await attempt() }   // one retry — clears a transient/rate-limited run
+  _refreshing = false
+  if (res.ok) { note.textContent = '✓ Roster data refreshed — reloading…'; setTimeout(() => location.reload(), 900); return }
+  if (res.status === 0) { note.innerHTML = "⚠ Lost the companion mid-refresh — is the <b>Start Draft Tool</b> window still open?"; return }
+  note.innerHTML = `⚠ Refresh failed — sent key <code>${masked}</code>. ${res.err}<br>If that's 401/expired: open <b>developer.riotgames.com</b>, copy the CURRENT key it shows (it changes every time you reload that page), and paste it here right away.`
 }
 function dismissRiotKey() {
   try { localStorage.setItem('rk_dismissed', new Date().toDateString()) } catch {}

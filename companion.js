@@ -225,6 +225,11 @@ http.createServer(async (req, res) => {
     req.on('end', () => {
       let key = ''; try { key = (JSON.parse(body).key || '').trim(); } catch {}
       if (!/^RGAPI-[0-9a-f-]+$/i.test(key)) return J(res, 400, { ok: false, error: 'That is not a valid RGAPI- key.' });
+      // Only ONE refresh at a time — concurrent runs hammer Riot with the same dev key and
+      // rate-limit each other into spurious failures.
+      if (global._refreshRunning) return J(res, 409, { ok: false, error: 'A refresh is already running — give it a moment.' });
+      global._refreshRunning = true;
+      const done = (code, obj) => { global._refreshRunning = false; J(res, code, obj); };
       execFile(process.execPath, ['scripts/refresh-roster.js'],
         // Riot's API has valid certs → keep TLS verification ON for the child (only the
         // LCU needs it relaxed). Key passed as env only; never written to disk.
@@ -232,9 +237,9 @@ http.createServer(async (req, res) => {
         (err, stdout, stderr) => {
           if (err) {
             const lines = ((stderr || err.message) || '').toString().trim().split('\n').filter(l => l.trim());
-            return J(res, 500, { ok: false, error: lines.pop() || 'refresh failed' });
+            return done(500, { ok: false, error: lines.pop() || 'refresh failed' });
           }
-          J(res, 200, { ok: true, log: stdout.toString().trim().split('\n').slice(-6) });
+          done(200, { ok: true, log: stdout.toString().trim().split('\n').slice(-6) });
         });
     });
     return;
