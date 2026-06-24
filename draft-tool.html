@@ -122,6 +122,13 @@ body{background:var(--dark);color:var(--gold-l);font-family:'Segoe UI',system-ui
 .pro-stars{color:#F39C12;font-size:9px;letter-spacing:1px}
 /* ── DRAFT VERDICT / WIN CONS ── */
 .draft-verdict{padding:8px 10px;border-radius:5px;border:1px solid;font-size:11px;font-weight:600;line-height:1.5;margin-bottom:6px}
+.gameplan{padding:9px 11px;border-radius:6px;border:1px solid var(--gold);background:#C89B3C0F;margin-bottom:6px}
+.gameplan-title{font-size:12px;font-weight:800;letter-spacing:.5px;color:var(--gold);margin-bottom:7px}
+.gameplan-row{display:flex;gap:8px;font-size:10px;line-height:1.5;padding:3px 0;border-top:1px solid #C89B3C1F}
+.gameplan-row:first-of-type{border-top:none}
+.gameplan-k{flex:0 0 84px;color:var(--gold-l);font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:9px;padding-top:1px}
+.gameplan-v{color:var(--gray-l);flex:1}
+.gameplan-v b{color:#fff;font-weight:700}
 .wc-block{padding:8px 10px;border-radius:4px;border:1px solid;margin-bottom:5px}
 .wc-block.b{border-color:#0BC4E328;background:#0BC4E308}
 .wc-block.r{border-color:#C84B3128;background:#C84B3108}
@@ -3815,6 +3822,44 @@ function getDraftVerdict() {
 
   return { verdict: scoreLine + verdict + extra, verdictColor }
 }
+// The single biggest damage threat on a side — the champ to play around / shut down.
+function primaryCarry(side) {
+  const ids = DS[side].picks.filter(Boolean)
+  let best = null, bs = -1
+  for (const id of ids) { const t = damageThreat(id); if (t > bs) { bs = t; best = id } }
+  return best
+}
+// Archetype → how to actually win the teamfight (tactical execution).
+const TEAMFIGHT = {
+  'Engage':        'Let your engage start the fight onto their backline, then collapse together — never fight without it up.',
+  'Dive':          'Set the wave, flank, and commit onto their carry as one — blow it up, then clean up.',
+  'Front-to-back': 'Group as 5 — frontline soaks, your carry free-hits from the back. Don\'t get caught out before the fight.',
+  'Poke/Siege':    'Chip them below 50% around an objective, then take the fight on your terms — avoid raw 5v5s.',
+  'Pick':          'Get vision, catch one in the fog with CC, and turn it into a 5v4 objective.',
+  'Flexible':      'Play to your strongest members and adapt to the game state.',
+}
+// Synthesise the finished draft into a concrete "how do we win this game" plan for OUR side.
+function gamePlan(ourSide, enemySide) {
+  const p = teamProfile(ourSide), e = teamProfile(enemySide)
+  if (p.n < 5) return null
+  const arch = compArchetype(p), earch = compArchetype(e)
+  const items = []
+  items.push(['How we win', `<b>${arch}</b> — ${WINCON[arch] || ''}`])
+  items.push(['When we spike', `${timingLabel(p.timing)}. ${powerSpikeWindow(p.timing).replace(/<\/?b>/g, '')}`])
+  const carry = primaryCarry(ourSide)
+  if (carry) items.push(['Play around', `<b>${CHAMPS[carry].name}</b> (your main damage) — funnel resources and peel; win through them.`])
+  items.push(['Win the fight', TEAMFIGHT[arch] || ''])
+  if (e.n >= 4 && BEATEN_BY[earch]) items.push(['Beat their comp', `They're <b>${earch}</b>${ARCH_COUNTERS[earch] ? ` — answer with ${ARCH_COUNTERS[earch]}` : ''}: ${BEATEN_BY[earch].tip}`])
+  const respects = []
+  const eCarry = primaryCarry(enemySide)
+  if (eCarry) respects.push(`shut down <b>${CHAMPS[eCarry].name}</b> (their carry)`)
+  const sp = enemySplitPushers(enemySide)
+  if (sp.length) respects.push(`match the sidelane vs ${sp.map(id => CHAMPS[id].name).join('/')} (split-push)`)
+  const cc = counteredCarries(ourSide, enemySide)
+  if (cc.length) respects.push(`peel/swap ${cc.map(x => CHAMPS[x.champ].name).join(', ')} (countered in lane)`)
+  if (respects.length) items.push(['Respect / avoid', respects.join('; ') + '.'])
+  return { items }
+}
 // Overall draft-quality score 0..100 from the universal checklist (frontline,
 // mixed damage, engage/CC, threat saturation, clear win condition, peel).
 function draftQualityScore(p) {
@@ -4044,19 +4089,22 @@ function renderComp() {
     && DS.red.picks.filter(Boolean).length === 5
 
   if (done) {
-    // Show win cons + draft verdict
-    const bWcs = getWinCons('blue')
-    const rWcs = getWinCons('red')
     const verdict = getDraftVerdict()
     let html = ''
     if (verdict) html += `<div class="draft-verdict" style="border-color:${verdict.verdictColor}22;color:${verdict.verdictColor}">${verdict.verdict}</div>`
-    if (mainTab !== 'solo') {
-      const cc = counteredCarries(mySide, otherSide())
-      if (cc.length) html += `<div class="wc-block ${mySide==='blue'?'b':'r'}"><div class="wc-lbl" style="color:#E87A65">⚠ Countered carries</div>${
-        cc.map(x => `<div class="wc-item">${CHAMPS[x.champ].name} is countered by their ${CHAMPS[x.by].name}.</div>`).join('')}</div>`
+    // HOW DO WE WIN THIS GAME — focused game plan for our side.
+    const gp = mainTab !== 'solo' ? gamePlan(mySide, otherSide()) : null
+    if (gp) {
+      html += `<div class="gameplan ${mySide === 'blue' ? 'b' : 'r'}">
+        <div class="gameplan-title">🏆 How do we win this game</div>
+        ${gp.items.map(([k, v]) => `<div class="gameplan-row"><span class="gameplan-k">${k}</span><span class="gameplan-v">${v}</span></div>`).join('')}
+      </div>`
+    } else {
+      // Solo fallback — generic win cons.
+      const bWcs = getWinCons('blue'), rWcs = getWinCons('red')
+      if (bWcs.length) html += `<div class="wc-block b"><div class="wc-lbl">Blue Win Cons</div>${bWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
+      if (rWcs.length) html += `<div class="wc-block r"><div class="wc-lbl">Red Win Cons</div>${rWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
     }
-    if (bWcs.length) html += `<div class="wc-block b"><div class="wc-lbl">Blue Win Cons</div>${bWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
-    if (rWcs.length) html += `<div class="wc-block r"><div class="wc-lbl">Red Win Cons</div>${rWcs.map(w=>`<div class="wc-item">→ ${w}</div>`).join('')}</div>`
     document.getElementById('comp-warnings').innerHTML = html
   } else if (mainTab !== 'solo') {
     // Live comp plan — what you're building, your win condition, what's missing.
