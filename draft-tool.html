@@ -565,6 +565,10 @@ const SYLAS_STEAL = new Set([54])   // Malphite only — we only care about Syla
 // long. Surface a note when the enemy drafts one + a tiny ban nudge.
 const SPLIT_PUSHERS = new Set(['Tryndamere', 'Jax', 'Fiora', 'Camille', 'Nasus', 'Yorick', 'Kayle', 'Master Yi', 'Vayne', 'Trundle', 'Kassadin', 'Sion', 'Gangplank', 'Illaoi', 'Quinn'])
 function enemySplitPushers(side) { return DS[side].picks.filter(Boolean).filter(id => SPLIT_PUSHERS.has(CHAMPS[id] && CHAMPS[id].name)) }
+// Champs with GLOBAL / cross-map ults — these comps make plays from across the map (TP-style
+// dives, ult ganks/picks) instead of just grouping 5. Changes the teamfight game plan.
+const GLOBAL_ULTS = new Set(['Shen', 'Nocturne', 'Twisted Fate', 'Pantheon', 'Galio', 'Ashe', 'Karthus', 'Gangplank', 'Soraka', 'Ryze'])
+function globalUlts(side) { return DS[side].picks.filter(Boolean).filter(id => GLOBAL_ULTS.has(CHAMPS[id] && CHAMPS[id].name)) }
 // Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
 function kitCounterPenalty(champId, enemyPicks) {
   let pen = 0
@@ -3849,6 +3853,9 @@ function gamePlan(ourSide, enemySide) {
   const carry = primaryCarry(ourSide)
   if (carry) items.push(['Play around', `<b>${CHAMPS[carry].name}</b> (your main damage) — funnel resources and peel; win through them.`])
   items.push(['Win the fight', TEAMFIGHT[arch] || ''])
+  // Global ults change the plan — make cross-map plays instead of just grouping 5.
+  const globals = globalUlts(ourSide)
+  if (globals.length >= 1) items.push(['Global pressure', `<b>${globals.map(id => CHAMPS[id].name).join(' + ')}</b> ${globals.length > 1 ? 'have global ults' : 'has a global ult'} — don't just group 5. Split/roam and collapse from across the map (ult dives, picks) to make a numbers advantage.`])
   if (e.n >= 4 && BEATEN_BY[earch]) items.push(['Beat their comp', `They're <b>${earch}</b>${ARCH_COUNTERS[earch] ? ` — answer with ${ARCH_COUNTERS[earch]}` : ''}: ${BEATEN_BY[earch].tip}`])
   const respects = []
   const eCarry = primaryCarry(enemySide)
@@ -4014,14 +4021,19 @@ function compArchetype(p) {
   const engageTanks = (sc.vanguard || 0)
   const tankish     = (sc.vanguard || 0) + (sc.warden || 0) + (sc.juggernaut || 0)
   const peelCnt     = (sc.enchanter || 0) + (sc.warden || 0)
-  const diveCnt     = (sc.diver || 0) + (sc.skirmisher || 0) + (p.assassins || 0)
+  const divers      = (sc.diver || 0) + (sc.skirmisher || 0)
+  const diveCnt     = divers + (p.assassins || 0)
   if (pokeCnt >= 2 && engageTanks === 0) return 'Poke/Siege'                   // long-range, no commit
-  if (tankish >= 1 && peelCnt >= 1 && (p.hyper || p.scaling >= 1)) return 'Front-to-back'  // tank + peel + carry
+  // DIVE has priority: multiple assassins/divers DEFINE the comp even alongside an engage
+  // tank or a peel-tank like Shen — these make plays onto the backline, not front-to-back.
+  if (diveCnt >= 3 || (divers >= 2 && (p.assassins || 0) >= 1) || ((p.assassins || 0) >= 2 && diveCnt >= 2 && (engageTanks >= 1 || divers >= 1))) return 'Dive'
   if (engageTanks >= 2) return 'Engage'                                        // multiple hard-engage tanks (wombo)
-  if (diveCnt >= 3 || ((sc.diver || 0) >= 2 && (p.assassins || 0) >= 1)) return 'Dive'     // mobility to backline
+  // Front-to-back needs a frontline + peel + a scaling carry AND a LOW dive count (else it's a dive comp).
+  if (tankish >= 1 && peelCnt >= 1 && (p.hyper || p.scaling >= 1) && diveCnt <= 1) return 'Front-to-back'
   if ((sc.catcher || 0) >= 2 && tankish === 0) return 'Pick'                   // hooks/roots, no frontline
   if (engageTanks >= 1 && (p.hyper || p.scaling >= 1)) return 'Front-to-back'
   if (engageTanks >= 1) return 'Engage'
+  if (diveCnt >= 2) return 'Dive'
   return 'Flexible'
 }
 // Lightweight comp profile from an arbitrary id list (for classifying a hypothetical
