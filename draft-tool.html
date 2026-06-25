@@ -494,6 +494,7 @@ const KQF_ROSTER = [
   { name:'monkeydadam',     display:'MonkeyDAdam',     defaultRole:'adc',     isSub:false, opggTag:'NA1'   },
   { name:'yoitssam',        display:'YoitsSam',        defaultRole:'support', isSub:false, opggTag:'NA1'   },
   { name:'lp fisherman',    display:'LP Fisherman',    defaultRole:'adc',     isSub:true,  opggTag:'NA1'   },
+  { name:'maul me maybe',   display:'Maul Me Maybe',   defaultRole:'mid',     isSub:true,  opggTag:'NA1'   },
 ]
 
 // Human roster intel — comfort/preference notes from the team that the raw stats
@@ -1588,7 +1589,10 @@ function loadLineup() { try { return JSON.parse(localStorage.getItem(LINEUP_KEY)
 
 const roster = []
 function rebuildRoster() {
-  const all = [...KQF_ROSTER, ...customPlayers()]
+  // Dedupe: a custom-added player who's since been promoted into KQF_ROSTER (e.g. Kyle)
+  // shouldn't appear twice — the hardcoded entry (proper-cased display) wins.
+  const customs = customPlayers().filter(cp => !KQF_ROSTER.some(k => k.name === cp.name))
+  const all = [...KQF_ROSTER, ...customs]
   roster.length = 0
   for (const p of all) roster.push({
     ...p,
