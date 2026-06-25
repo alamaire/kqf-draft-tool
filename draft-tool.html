@@ -576,6 +576,10 @@ function enemySplitPushers(side) { return DS[side].picks.filter(Boolean).filter(
 // dives, ult ganks/picks) instead of just grouping 5. Changes the teamfight game plan.
 const GLOBAL_ULTS = new Set(['Shen', 'Nocturne', 'Twisted Fate', 'Pantheon', 'Galio', 'Ashe', 'Karthus', 'Gangplank', 'Soraka', 'Ryze'])
 function globalUlts(side) { return DS[side].picks.filter(Boolean).filter(id => GLOBAL_ULTS.has(CHAMPS[id] && CHAMPS[id].name)) }
+// Attack-speed-scaling hypercarry ADCs — the only carries Lulu (an AS enchanter) should
+// pair with. Lulu is only suggested / counted as a strong duo when one of these is our ADC.
+const AS_SCALERS = new Set(["Kog'Maw", 'Twitch', 'Vayne', 'Jinx', "Kai'Sa", 'Zeri', 'Smolder', 'Xayah', 'Tristana'])
+function ourAsCarry(side) { return DS[side].picks.some(id => id && AS_SCALERS.has(CHAMPS[id] && CHAMPS[id].name)) }
 // Specific kit/comp counters worth a real penalty (vs broad "they have a counter").
 function kitCounterPenalty(champId, enemyPicks) {
   let pen = 0
@@ -896,7 +900,13 @@ function rolePairSynergy(champId, role, allyByRole) {
   let best = { score: 0, partnerId: null, partnerRole: null }
   for (const pr of (SYNERGY_PARTNER_ROLES[role] || [])) {
     const pid = allyByRole[pr]; if (!pid) continue
-    const q = synergyQuality(champId, pid)
+    let q = synergyQuality(champId, pid)
+    // Lulu pairs ONLY with attack-speed-scaling ADCs — gate the Lulu↔ADC duo synergy.
+    const a = CHAMPS[champId] && CHAMPS[champId].name, b = CHAMPS[pid] && CHAMPS[pid].name
+    if ((a === 'Lulu' && pr === 'adc') || (b === 'Lulu' && role === 'adc')) {
+      const adcName = a === 'Lulu' ? b : a
+      q = AS_SCALERS.has(adcName) ? Math.max(q, 0.72) : Math.min(q, 0.3)
+    }
     if (q > best.score) best = { score: q, partnerId: pid, partnerRole: pr }
   }
   return best
@@ -3386,9 +3396,12 @@ function getSuggestions() {
           else if (myD === 'AP') dmgBalance = -0.18 * strength
         }
       }
+      // Lulu only pairs with an attack-speed-scaling hypercarry ADC — boost her with one on
+      // the team, suppress her otherwise (don't suggest Lulu without an AS-carry).
+      const luluAdj = (isOurs && c.name === 'Lulu') ? (ourAsCarry(mySide) ? 0.10 : -0.22) : 0
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + itemBoost + dmgBalance + comfortF * 0.03 - cByPen - offRolePen - kitPen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + itemBoost + dmgBalance + luluAdj + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
       // GATED player: in the gated mode (e.g. Shane in Ranked 5's), only suggest champs
       // in their vouched pool for their role — don't propose off-pool picks for them.
