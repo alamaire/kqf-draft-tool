@@ -2134,7 +2134,7 @@ function updateBanCounts() {
 // ── Draft actions ─────────────────────────────────────────────────────────
 let _pendingAssign = null
 
-function selectChamp(id, evt) {
+function selectChamp(id, evt, preferRole) {
   if (getUsedIds().includes(id)) return
 
   // Solo mode: one click adds the champ to the active side (your team / enemy).
@@ -2161,7 +2161,7 @@ function selectChamp(id, evt) {
     const step = order[DS.step]
     // Bans use the fixed ban slot; PICKS snap to the champion's role/player slot
     // (so an ADC lands on the ADC player, not wherever pick order points).
-    const slot = step.type === 'ban' ? step.slot : roleSlotFor(step.team, id)
+    const slot = step.type === 'ban' ? step.slot : roleSlotFor(step.team, id, preferRole)
     DS[step.team][step.type==='ban'?'bans':'picks'][slot] = id
     DS.history.push({step:DS.step, team:step.team, type:step.type, slot})
     DS.step++
@@ -3125,9 +3125,12 @@ function openRolesFor(side) {
 }
 // Which slot a drafted champion belongs in — its role's player slot (so an ADC
 // like Miss Fortune lands on the ADC player, not wherever the pick order points).
-function roleSlotFor(side, id) {
+function roleSlotFor(side, id, preferRole) {
   const roles = DS[side].roles, picks = DS[side].picks
   const open = r => { const i = roles.indexOf(r); return (i !== -1 && !picks[i]) ? i : -1 }
+  // FIRST honor the role the suggestion was made for — it was shown as e.g. TOP because that's
+  // the best role for this draft, so place it in TOP (not wherever its meta role points).
+  if (preferRole) { const i = open(preferRole); if (i !== -1) return i }
   // For OUR roster, a vouched pick belongs in the player's role — GP is Blake's MID pick,
   // so it slots to mid (not jungle/top), overriding op.gg's meta role.
   if (mainTab !== 'solo' && side === mySide) {
@@ -3725,7 +3728,7 @@ function renderSuggestions() {
     const scoreColor = v ? v.color : (s.score>=78?'var(--green)':s.score>=60?'var(--gold)':'var(--gray)')
     const badge = s.best ? `<span class="best-badge">BEST</span>` : ''
     const verdictTag = (!isBan && v) ? `<span class="verdict-tag" style="color:${v.color};border-color:${v.color}55">${v.label}</span>` : ''
-    html+=`<div class="sug-item ${isBan?'ban':'pick'}${s.best?' best':''}" onclick="selectChamp(${s.id},event)" title="Click to add ${esc(c.name)} to the draft">
+    html+=`<div class="sug-item ${isBan?'ban':'pick'}${s.best?' best':''}" onclick="selectChamp(${s.id},event,${s.role?`'${s.role}'`:'undefined'})" title="Click to add ${esc(c.name)} to the draft">
       <div class="sug-top">
         <span class="sug-num">${i+1}</span>
         <div class="sug-img"><img src="${c.img}" alt="${c.name}"/></div>
