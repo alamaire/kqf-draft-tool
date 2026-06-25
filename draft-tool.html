@@ -520,6 +520,10 @@ const PLAYER_PREFS = {
   yoitssam:        { signature: ['Thresh'], strong: ['Braum', 'Rell', 'Leona'], playable: ['Rakan'], exclude: ["Vel'Koz"], style: 'engage / catch supports' },
   // Sub — comes in for ADC; small, focused pool.
   'lp fisherman':  { signature: ['Smolder', 'Ziggs'], playable: ['Corki', 'Swain'], exclude: ["Kog'Maw", 'Samira'], gated: ['ranked5'], style: 'sub — ADC; gated to pool in Ranked 5s, more flex in Flex' },
+  // Kyle (maul me maybe) — flexes MID and SUPPORT.
+  'maul me maybe': { mid:     { signature: ['Vex'],   strong: ['Xerath', 'Morgana', 'Zyra', 'Veigar', 'Galio', 'Neeko', 'Zilean'] },
+                     support: { signature: ['Braum'], strong: ['Nautilus', 'Zyra', 'Morgana', 'Xerath', 'Galio', 'Neeko', 'Zilean'] },
+                     style: 'Kyle — mid/support; mages + engage' },
 }
 const PREF_ROLE_KEYS = ['top', 'jungle', 'mid', 'adc', 'support']
 // Combo-only picks: low priority UNLESS the partner is on our team (champ name → required ally).
