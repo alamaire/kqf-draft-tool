@@ -1702,6 +1702,25 @@ async function loadPlayerPool(idx) {
   roster[idx].poolError = null
   renderRoster()
 
+  // Preferred path: the local companion fetches op.gg SERVER-SIDE (no CORS, reliable) — this
+  // is what makes adding a new account actually work. Tried regardless of the _companionPresent
+  // flag (it resolves fast and falls back to the browser proxy if there's no companion).
+  try {
+    const rs = await fetch(`/api/scout?name=${encodeURIComponent(p.display||p.name)}&tag=${encodeURIComponent(p.opggTag)}`, { cache: 'no-store' })
+    if (rs.ok) {
+      const sd = await rs.json().catch(() => ({}))
+      if (sd && sd.ok && Array.isArray(sd.pool)) {
+        const pool = sd.pool.map(c => ({ championId: c.championId, games: c.games, wins: c.wins, winRate: c.winRate })).filter(c => c.championId && c.games > 0)
+        if (pool.length) {
+          roster[idx].pool = pool; roster[idx].poolLoading = false; roster[idx].poolError = null
+          poolCacheSave(p.name, p.opggTag, pool)
+          renderRoster(); render()
+          return
+        }
+      }
+    }
+  } catch (e) { /* no companion / not reachable — fall back to the browser proxy below */ }
+
   try {
     // Step 1: resolve summoner → get internal summoner_id
     const sumUrl = `${OPGG_API}/summoners/na/summoners?gaming_name=${encodeURIComponent(p.display||p.name)}&tag_line=${encodeURIComponent(p.opggTag)}`
