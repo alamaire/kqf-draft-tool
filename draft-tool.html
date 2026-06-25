@@ -1919,16 +1919,8 @@ function renderRoster() {
     else if (p.pool.length) { loadBtnCls += ' done'; loadBtnTxt = '↺' }
 
     const opggHref = `https://www.op.gg/summoners/na/${encodeURIComponent(p.display||p.name)}-${encodeURIComponent(p.opggTag)}`
-
-    return `<div class="${cardClass}" id="pc-${i}">
-      <div class="pc-top">
-        <span class="pc-name" title="${p.display||p.name}">${p.display||p.name}</span>
-        ${p.custom ? `<span class="pc-remove" onclick="event.stopPropagation();removeCustomPlayer('${p.name.replace(/'/g,"\\'")}')" title="Remove ${p.display||p.name} from roster">✕</span>` : ''}
-        ${toggleBtn}
-      </div>
-      <div class="pc-bottom">
-        ${isActive ? roleDropdown : `<span class="pc-role-badge sub">BENCHED</span>`}
-      </div>
+    // Only show the op.gg champion history for ACTIVE players — hide it while benched.
+    const opggSection = !isActive ? '' : `
       <div class="opgg-row">
         <span style="color:var(--gray);font-size:9px">#</span>
         <input class="opgg-tag-input" value="${p.opggTag}" title="Tag line"
@@ -1943,7 +1935,18 @@ function renderRoster() {
           ? `<div style="color:var(--red);font-size:9px;margin-top:3px" title="${p.poolError}">⚠ ${p.poolError.slice(0,30)}</div>`
           : isSeed
             ? `<div style="color:var(--gray-l);font-size:8px;margin-top:3px" title="Showing baseline pool. Click ↺ to pull live OP.GG data.">baseline · ↺ for live</div>`
-            : ''}
+            : ''}`
+
+    return `<div class="${cardClass}" id="pc-${i}">
+      <div class="pc-top">
+        <span class="pc-name" title="${p.display||p.name}">${p.display||p.name}</span>
+        ${p.custom ? `<span class="pc-remove" onclick="event.stopPropagation();removeCustomPlayer('${p.name.replace(/'/g,"\\'")}')" title="Remove ${p.display||p.name} from roster">✕</span>` : ''}
+        ${toggleBtn}
+      </div>
+      <div class="pc-bottom">
+        ${isActive ? roleDropdown : `<span class="pc-role-badge sub">BENCHED</span>`}
+      </div>
+      ${opggSection}
     </div>`
   }).join('') + `<div class="player-card add-card" onclick="openAddPlayer()" title="Add a player to the roster">
       <div class="add-plus">+</div><div class="add-lbl">Add player</div>
