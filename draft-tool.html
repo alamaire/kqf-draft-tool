@@ -1872,7 +1872,14 @@ function renderRoster() {
   // TRACKER view — games played & win rates from our saved roster games.
   if (poolView === 'tracker') { renderTracker(el); return }
 
-  el.innerHTML = roster.map((p, i) => {
+  // Display in fixed role order (top→jungle→mid→adc→support); active players first, benched
+  // after. Keep each card's ORIGINAL roster index for the click handlers.
+  const roleOrder = { top: 0, jungle: 1, mid: 2, adc: 3, support: 4 }
+  const ordered = roster.map((p, i) => [p, i]).sort((a, b) => {
+    const aw = a[0].active ? 0 : 1, bw = b[0].active ? 0 : 1
+    return aw - bw || (roleOrder[a[0].role] ?? 9) - (roleOrder[b[0].role] ?? 9)
+  })
+  el.innerHTML = ordered.map(([p, i]) => {
     const isSub = p.isSub
     const isActive = p.active
 
@@ -2070,20 +2077,15 @@ window.togglePlayer = togglePlayer
 
 function applyRosterToTeam() {
   if (mainTab === 'solo') return
-
-  const activePlayers = roster.filter(p => p.active && p.role !== 'sub')
-  // Sort by role order: top jng mid adc sup
-  const roleOrder = { top:0, jungle:1, mid:2, adc:3, support:4 }
-  activePlayers.sort((a,b) => (roleOrder[a.role]??9) - (roleOrder[b.role]??9))
-
-  // Fill OUR side's slots with active player names + roles; the enemy side stays
-  // unknown (generic role slots, blank names) until we log their picks.
   const us = mySide, them = otherSide()
-  for (let i = 0; i < 5; i++) {
-    const p = activePlayers[i]
-    DS[us].names[i] = p ? (p.display||p.name) : ''
-    DS[us].roles[i] = p ? p.role : ''
-  }
+  // ALWAYS keep the 5 role slots in fixed top→jungle→mid→adc→support order. Each active
+  // player goes in THEIR role's slot; an unfilled role keeps its slot (blank name) so the
+  // engine still drafts the best pick for it from meta/comp/counters (no op.gg pool needed).
+  DS[us].roles = [...ALL_ROLES]
+  DS[us].names = ALL_ROLES.map(r => {
+    const p = roster.find(pp => pp.active && pp.role === r)
+    return p ? (p.display || p.name) : ''
+  })
   DS[them].names = Array(5).fill('')
   DS[them].roles = [...ALL_ROLES]
 }
