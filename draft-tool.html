@@ -2098,9 +2098,7 @@ function renderTracker(el) {
       ${raLine('Weak picks', ins.worstChamps, c => `${c.k} ${c.w}-${c.l}`)}
     </div>`
   } else {
-    const emptyMsg = mainTab === 'ranked5'
-      ? "No Ranked 5's games yet — that queue launches Friday (Jun 26). Analysis builds once you play full-roster Ranked 5's."
-      : `Builds from full-roster ${modeLbl} games (need ≥3). ${ins.games} so far.`
+    const emptyMsg = `Builds from full-roster ${modeLbl} games (need ≥3) — auto-captured live as you play. ${ins.games} so far.`
     analysis = `<div class="ra-block"><div class="ra-title">📊 Roster Analysis · ${modeLbl}</div><div class="ra-row" style="color:var(--gray-l)">${emptyMsg}</div></div>`
   }
   el.innerHTML = `<div class="tracker">
@@ -2113,7 +2111,7 @@ function renderTracker(el) {
     <div class="track-cards">${cards}</div>
     ${analysis}
     ${games.length ? `<div class="rg-list-lbl">Match history · last ${Math.min(10, games.length)}</div><div class="rg-list">${gamesHtml}</div>` : ''}
-    ${all.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet${mainTab === 'ranked5' ? " — Ranked 5's launches Jun 26" : ''}. Play a full 5-stack, then refresh the Riot data.</div>`}
+    ${all.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet. Play a full 5-stack with the companion running — it auto-captures live.</div>`}
   </div>`
 }
 
@@ -2991,19 +2989,30 @@ function rosterInsights() {
   // so it comes from our drafted captures (also mode-filtered). Both are now per-mode, so
   // the Flex tab analyses Flex only and Ranked 5's stays empty until that queue launches.
   const b = rosterBucket(true)
-  const riot = (b && b.games) || []
-  const champ = {}, comps = {}
-  for (const g of riot) {
-    const ids = Object.values(g.picks).filter(Boolean)
-    for (const id of ids) { const n = CHAMPS[id] && CHAMPS[id].name; if (n) (champ[n] = champ[n] || { w: 0, l: 0 })[g.win ? 'w' : 'l']++ }
-    if (ids.length >= 4) { const a = compArchetype(profileOfIds(ids)); (comps[a] = comps[a] || { w: 0, l: 0 })[g.win ? 'w' : 'l']++ }
+  const champ = {}, comps = {}, seen = new Set()
+  const addGame = (ids, win) => {
+    for (const id of ids) { const n = CHAMPS[id] && CHAMPS[id].name; if (n) (champ[n] = champ[n] || { w: 0, l: 0 })[win ? 'w' : 'l']++ }
+    if (ids.length >= 4) { const a = compArchetype(profileOfIds(ids)); (comps[a] = comps[a] || { w: 0, l: 0 })[win ? 'w' : 'l']++ }
+  }
+  // Riot full-roster games for this mode (authoritative)…
+  for (const g of ((b && b.games) || [])) {
+    if (g.id != null) { if (seen.has(g.id)) continue; seen.add(g.id) }
+    addGame(Object.values(g.picks).filter(Boolean), !!g.win)
+  }
+  // …PLUS our live-captured games for this mode, so Ranked 5's analysis works from night one
+  // (before any Riot pull). Deduped by gameId so a game in both sources isn't counted twice.
+  for (const d of historyLoad()) {
+    if ((d.mode || 'flex') !== mainTab || (d.result !== 'win' && d.result !== 'loss')) continue
+    if (d.gameId != null) { if (seen.has(d.gameId)) continue; seen.add(d.gameId) }
+    const our = d.ourSide || 'blue'
+    addGame(((d[our] && d[our].picks) || []).map(n => NAME_ID[n]).filter(Boolean), d.result === 'win')
   }
   const topList = (obj, wantWin, min) => Object.entries(obj)
     .filter(([, r]) => r.w + r.l >= min && (wantWin ? r.w > r.l : r.l > r.w))
     .map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) }))
     .sort((a, b) => wantWin ? (b.wr - a.wr || b.w - a.w) : (a.wr - b.wr || b.l - a.l))
   return {
-    games: riot.length || (S.games || []).length,
+    games: seen.size || (S.games || []).length,
     side: { blue: S.side.blue || { w: 0, l: 0 }, red: S.side.red || { w: 0, l: 0 } },
     struggles: strugglesAgainst(2),
     bestComps: Object.entries(comps).filter(([, r]) => r.w + r.l >= 2 && r.w >= r.l).map(([k, r]) => ({ k, w: r.w, l: r.l, wr: wr(r) })).sort((a, b) => b.wr - a.wr),

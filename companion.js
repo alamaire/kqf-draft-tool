@@ -100,6 +100,15 @@ async function champSelect() {
 // live (Riot's post-game API omits it), so this is the only way to capture it.
 const DRAFTS_FILE = path.join(ROOT, 'live-drafts.json');
 const QUEUE_MODE = { 420: 'solo', 440: 'flex' /* , <ranked5 id>: 'ranked5' once known */ };
+// Resolve a captured game's mode. Ranked 5's is a 5-stack tournament/custom draft whose
+// queueId may be custom/unknown — so ANY full-roster drafted game that isn't Flex/Solo is
+// treated as Ranked 5's. (Captures are full-roster-only, so this reliably tags them tonight
+// even before the exact queueId is known; the queueId is logged so it can be pinned later.)
+function resolveMode(queueId, fullRoster) {
+  if (queueId === 420) return 'solo';
+  if (queueId === 440) return 'flex';
+  return fullRoster ? 'ranked5' : 'other';
+}
 // Roster account names (lowercased) — used to detect a FULL-roster game. Live drafting
 // always runs off MonkeyDAdam's client; teammates' names are visible in champ select.
 const ROSTER_NAMES = new Set(['thedrunkofrivia', 'teemoboy2011', 'styiebender', 'monkeydadam', 'yoitssam', 'lp fisherman']);
@@ -204,7 +213,7 @@ async function watchTick() {
       watch.tries++;
       if (result !== undefined || watch.tries > 12) {
         const p = watch.pending;
-        const entry = { gameId: gid || Date.now(), date: p.date, queueId: p.queueId, mode: QUEUE_MODE[p.queueId] || 'other',
+        const entry = { gameId: gid || Date.now(), date: p.date, queueId: p.queueId, mode: resolveMode(p.queueId, p.fullRoster),
           ourSide: p.ourSide, sequence: p.sequence, blue: p.blue, red: p.red, result: result || null, notes: 'Auto-captured live', live: true };
         saveDraftEntry(entry); if (gid) watch.savedIds.add(gid);
         console.log(`   queueId=${p.queueId} → mode=${entry.mode}`);   // so the Ranked 5's queueId can be identified on first play
