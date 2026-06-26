@@ -1351,23 +1351,40 @@ function matchHistoryPool(name) {
   const pool = (live && live.length) ? live.map(e => ({ ...e })) : seedPoolFor(name)
   return filterExcluded(name, pool)
 }
-// "Draft Tool" pool — champions THIS player has actually been drafted on in our
-// SAVED games (roster played together), with our real win/loss on them.
-function draftToolPool(displayName) {
-  const agg = {}
-  for (const d of historyLoad()) {
+// Per-player pools LEARNED from our REAL games (auto-captured drafts): each roster player →
+// the champs they've actually played for us, with our W/L. Mode-aware (Flex vs Ranked 5's
+// kept separate) + memoized; grows automatically as we play more games. Keyed by the
+// player's summoner display name (what the companion records per pick).
+let _capPoolCache = { key: null, val: null }
+function capturedPools() {
+  const h = historyLoad()
+  const key = mainTab + ':' + h.length
+  if (_capPoolCache.key === key) return _capPoolCache.val
+  const out = {}
+  for (const d of h) {
     if (d.result !== 'win' && d.result !== 'loss') continue
+    if ((d.mode || 'flex') !== mainTab) continue                 // this mode's games only
     const our = d.ourSide || 'blue'
     const names = (d[our] && d[our].names) || [], picks = (d[our] && d[our].picks) || []
     for (let i = 0; i < 5; i++) {
-      if (names[i] !== displayName || !picks[i]) continue
-      const id = NAME_ID[picks[i]]; if (!id) continue
-      const a = agg[id] = agg[id] || { championId: id, games: 0, wins: 0 }
+      const who = names[i], pk = picks[i]; if (!who || !pk) continue
+      const id = NAME_ID[pk]; if (!id) continue
+      const pm = out[who] = out[who] || {}
+      const a = pm[id] = pm[id] || { championId: id, games: 0, wins: 0 }
       a.games++; if (d.result === 'win') a.wins++
     }
   }
-  return Object.values(agg).map(a => ({ ...a, winRate: a.games ? Math.round(a.wins / a.games * 100) : 0 }))
-    .sort((x, y) => y.games - x.games)
+  for (const who in out) for (const id in out[who]) { const a = out[who][id]; a.winRate = a.games ? Math.round(a.wins / a.games * 100) : 0 }
+  _capPoolCache = { key, val: out }
+  return out
+}
+function capturedPoolList(displayName) {
+  const pm = capturedPools()[displayName]
+  return pm ? Object.values(pm).sort((a, b) => b.games - a.games) : []
+}
+function capturedEntry(displayName, champId) {
+  const pm = capturedPools()[displayName]
+  return (pm && pm[champId]) || null
 }
 // The pool to DISPLAY for a roster player given the current view toggle.
 function displayPool(p) {
@@ -1377,7 +1394,15 @@ function displayPool(p) {
     const b = rosterBucket(true)
     return filterExcluded(p.name, (b && b.pools && b.pools[p.name]) || [])
   }
-  return p.pool
+  // op.gg pool + champs LEARNED from our captured games (picked champs added to their pool).
+  return mergePool(p.pool, capturedPoolList(p.display || p.name), p.name)
+}
+// Union an op.gg pool with champs learned from our games (adds picked champs not already shown).
+function mergePool(base, learned, nameKey) {
+  const byId = {}
+  for (const e of (base || [])) byId[e.championId] = { ...e }
+  for (const e of (learned || [])) if (!byId[e.championId]) byId[e.championId] = { championId: e.championId, games: e.games, wins: e.wins, winRate: e.winRate, learned: true }
+  return filterExcluded(nameKey, Object.values(byId))
 }
 function setPoolView(v) {
   poolView = v
@@ -2461,7 +2486,11 @@ function bestFamiliarity(champId, role) {
     if (!p.active || p.role === 'sub') continue
     if (role && p.role !== role) continue   // only this role's player counts
     if (prefExcluded(p.name, champId)) continue   // user says they don't play it
-    const rg = rosterGameEntry(p.name, champId)
+    // REAL games-together: prefer the richer of Riot-pulled vs auto-captured (same games,
+    // so take one not both). Captures grow live as we play — no Riot key needed.
+    const rge = rosterGameEntry(p.name, champId)
+    const cap = capturedEntry(p.display || p.name, champId)
+    const rg = (cap && (!rge || cap.games >= rge.games)) ? cap : rge
     const og = p.pool.find(e => e.championId === champId)
     let entry = null, f = 0
     if (rg && rg.games >= 2) {

@@ -103,6 +103,12 @@ const QUEUE_MODE = { 420: 'solo', 440: 'flex' /* , <ranked5 id>: 'ranked5' once 
 // Roster account names (lowercased) — used to detect a FULL-roster game. Live drafting
 // always runs off MonkeyDAdam's client; teammates' names are visible in champ select.
 const ROSTER_NAMES = new Set(['thedrunkofrivia', 'teemoboy2011', 'styiebender', 'monkeydadam', 'yoitssam', 'lp fisherman']);
+// Include any custom-added players (e.g. Kyle / "maul me maybe") so full-roster detection
+// and per-player learning count them too.
+try {
+  const _ex = JSON.parse(fs.readFileSync(path.join(ROOT, 'roster-custom.json'), 'utf8'));
+  for (const p of (Array.isArray(_ex) ? _ex : [])) if (p && p.name) ROSTER_NAMES.add(String(p.name).toLowerCase());
+} catch { /* no custom players */ }
 const POS_ROLE = { top: 0, jungle: 1, mid: 2, adc: 3, support: 4 };
 let CHAMP_NAME = {};       // championId -> name (from Data Dragon, loaded at startup)
 let myPuuid = null;
@@ -137,7 +143,13 @@ function snapshotDraft(s) {
   const fill = (cells, isOurTeam) => (cells || []).forEach(c => {
     const sd = isOurTeam ? ourSide : (ourSide === 'blue' ? 'red' : 'blue');
     const slot = POS_ROLE[POS2ROLE[c.assignedPosition]] ?? side[sd].picks.indexOf(null);
-    if (slot >= 0 && c.championId) { side[sd].picks[slot] = nm(c.championId); side[sd].roles[slot] = POS2ROLE[c.assignedPosition] || side[sd].roles[slot]; }
+    if (slot >= 0 && c.championId) {
+      side[sd].picks[slot] = nm(c.championId);
+      side[sd].roles[slot] = POS2ROLE[c.assignedPosition] || side[sd].roles[slot];
+      // Record WHO played it on our team (summoner gameName) so the tool can learn each
+      // player's pool from real games and add picked champs to their pool.
+      if (isOurTeam) side[sd].names[slot] = c.gameName || c.summonerName || '';
+    }
   });
   fill(s.myTeam, true); fill(s.theirTeam, false);
   // FULL-ROSTER check: are all 5 of our team roster accounts? (LP Fisherman subbing in
@@ -192,9 +204,10 @@ async function watchTick() {
       watch.tries++;
       if (result !== undefined || watch.tries > 12) {
         const p = watch.pending;
-        const entry = { gameId: gid || Date.now(), date: p.date, mode: QUEUE_MODE[p.queueId] || 'other',
+        const entry = { gameId: gid || Date.now(), date: p.date, queueId: p.queueId, mode: QUEUE_MODE[p.queueId] || 'other',
           ourSide: p.ourSide, sequence: p.sequence, blue: p.blue, red: p.red, result: result || null, notes: 'Auto-captured live', live: true };
         saveDraftEntry(entry); if (gid) watch.savedIds.add(gid);
+        console.log(`   queueId=${p.queueId} → mode=${entry.mode}`);   // so the Ranked 5's queueId can be identified on first play
         watch.pending = null; watch.tries = 0;
       }
     }
