@@ -3471,7 +3471,7 @@ function getSuggestions() {
       const luluAdj = (isOurs && c.name === 'Lulu') ? (ourAsCarry(mySide) ? 0.10 : -0.22) : 0
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * 1.6 + styleBoost + modeBias + itemBoost + dmgBalance + luluAdj + comfortF * 0.03 - cByPen - offRolePen - kitPen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * (1.6 + Math.min(1, (enemyProfile.n || 0) / 5) * 1.4) + styleBoost + modeBias + itemBoost + dmgBalance + luluAdj + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
       // GATED player: in the gated mode (e.g. Shane in Ranked 5's), only suggest champs
       // in their vouched pool for their role — don't propose off-pool picks for them.
@@ -3608,7 +3608,12 @@ function getSuggestions() {
   // strong recommendation, not "weak here". (Absolute scores compress as more
   // signals blend in, so a fixed threshold would mislabel the best picks.)
   assignRelativeVerdicts(picks)
-  return { picks: picks.slice(0, 10), bans: bans.slice(0, 8), roles: useRoles, isOurs, forSide, enemyBanTurn }
+  // Adaptive counter-identity: as the enemy comp forms, the engine steers our picks toward
+  // the archetype that beats it (trifecta) — re-evaluated every pick. Surfaced in the header.
+  const counterPlan = (isOurs && enemyArch && ARCH_COUNTERS[enemyArch])
+    ? { enemy: enemyArch, target: ARCH_COUNTERS[enemyArch], tip: (BEATEN_BY[enemyArch] || {}).tip, locked: enemyProfile.n }
+    : null
+  return { picks: picks.slice(0, 10), bans: bans.slice(0, 8), roles: useRoles, isOurs, forSide, enemyBanTurn, counterPlan }
 }
 
 // Label each pick by how it stands relative to the best suggestion in the list.
@@ -3833,6 +3838,9 @@ function renderSuggestions() {
     const intent = sug.isOurs === false ? '' : mainTab === 'ranked5' ? ` · <span style="color:var(--gold)">🏆 tryhard</span>`
                  : mainTab === 'flex' ? ` · <span style="color:var(--blue)">🧪 trial</span>` : ''
     html += `<div class="sug-role-hdr">${lead} · <b>${label}</b> · patch ${PATCH}${intent}${tune}</div>`
+    // Adaptive counter-identity — shifts as the enemy reveals; steers the picks below.
+    if (sug.counterPlan && sug.counterPlan.target)
+      html += `<div class="sug-role-hdr" style="color:var(--gold-l);font-weight:600">🎯 Adapting: build <b>${sug.counterPlan.target}</b> to beat their <b>${sug.counterPlan.enemy}</b>${sug.counterPlan.locked >= 4 ? '' : ' (forming)'}</div>`
   }
   items.forEach((s,i) => {
     const c = CHAMPS[s.id]; if(!c) return
