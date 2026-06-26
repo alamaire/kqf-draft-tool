@@ -60,13 +60,26 @@ async function getMatch(id) {
 function modeFor(q) { return q === FLEX_QUEUE ? 'flex' : q === RANKED5_QUEUE ? 'ranked5' : 'other'; }
 
 async function main() {
-  const puuidToKey = {};
-  const fails = [];
-  for (const p of ROSTER) {
-    const a = await getJSON(`https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(p.name)}/${encodeURIComponent(p.tag)}`);
-    if (a && a.puuid) { puuidToKey[a.puuid] = p.key; console.log('  ✓', `${p.name}#${p.tag}`); }
-    else { fails.push({ name: `${p.name}#${p.tag}`, status: _lastStatus }); console.log('  ✗', `${p.name}#${p.tag}`, '→ HTTP', _lastStatus); }
-    await sleep(GAP);
+  let puuidToKey = {}, fails = [];
+  // A freshly generated dev key can return 401 for a few seconds while it activates on Riot's
+  // side. So retry the whole account resolution a few times before declaring the key bad —
+  // this self-heals the "paste a fresh key → 401 → works a minute later" case.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    puuidToKey = {}; fails = [];
+    for (const p of ROSTER) {
+      const a = await getJSON(`https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(p.name)}/${encodeURIComponent(p.tag)}`);
+      if (a && a.puuid) { puuidToKey[a.puuid] = p.key; console.log('  ✓', `${p.name}#${p.tag}`); }
+      else { fails.push({ name: `${p.name}#${p.tag}`, status: _lastStatus }); console.log('  ✗', `${p.name}#${p.tag}`, '→ HTTP', _lastStatus); }
+      await sleep(GAP);
+    }
+    if (Object.keys(puuidToKey).length > 0) break;                 // got at least one → proceed
+    const s = (fails[0] && fails[0].status) || 0;
+    if ((s === 401 || s === 403 || s === 429) && attempt < 3) {    // transient / key still activating
+      console.log(`0 puuids (HTTP ${s}) — key may still be activating; retrying in 7s (attempt ${attempt}/3)…`);
+      await sleep(7000);
+      continue;
+    }
+    break;
   }
   console.log('resolved', Object.keys(puuidToKey).length, '/', ROSTER.length, 'puuids');
   // A bad/expired key resolves 0 puuids — fail loudly with the ACTUAL reason instead of
