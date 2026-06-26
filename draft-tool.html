@@ -700,6 +700,23 @@ function beatsInLane(aId, bId) {
   }
   return (COUNTERS[aId] || []).includes(bId)
 }
+// Do WE already have an answer to an enemy champ in its lane? True if a locked ally in that
+// lane beats it, OR the active player in that role has a pool champ that hard-counters it.
+// Used to back off a target-ban on an enemy one-trick we can simply counter-pick instead.
+function weCounterInLane(enemyId, ourSide) {
+  for (const r of champRoles(enemyId)) {
+    const i = DS[ourSide].roles.indexOf(r)
+    if (i !== -1 && DS[ourSide].picks[i] && beatsInLane(DS[ourSide].picks[i], enemyId)) return true
+    const p = roster.find(pp => pp.active && pp.role !== 'sub' && pp.role === r)
+    if (p) for (const e of (p.pool || [])) {
+      if (prefExcluded(p.name, e.championId)) continue
+      // Only count a counter we'd actually play: a vouched pick or one with real games.
+      const comfy = prefTier(p.name, e.championId, r) || (e.games || 0) >= 5
+      if (comfy && beatsInLane(e.championId, enemyId)) return true
+    }
+  }
+  return false
+}
 function countersNamed(champId, enemyPicks) {
   return [...new Set(enemyPicks.filter(id => beatsInLane(champId, id)).map(id => CHAMPS[id]?.name).filter(Boolean))]
 }
@@ -3597,7 +3614,14 @@ function getSuggestions() {
     if (ec) {
       scoutBoost = Math.min(0.30, ec.games / 100) + Math.max(0, (ec.wr - 50) / 100)
       if (threatToUs > 0.4) scoutBoost += 0.12
-      scoutNote = `${ec.who[0]} mains it (${ec.games}g, ${ec.wr}%)${threatToUs > 0.4 ? ' and it counters your comp' : ''} — deny their comfort.`
+      // If we already hard-counter their one-trick (a locked ally or the role player's pool
+      // beats it), we don't need to BAN it — we can just counter-pick it. Drop the priority.
+      if (weCounterInLane(c.id, mySide)) {
+        scoutBoost *= 0.25
+        scoutNote = `${ec.who[0]} mains it (${ec.games}g, ${ec.wr}%) — but we can counter it in lane, so banning is low value.`
+      } else {
+        scoutNote = `${ec.who[0]} mains it (${ec.games}g, ${ec.wr}%)${threatToUs > 0.4 ? ' and it counters your comp' : ''} — deny their comfort.`
+      }
     }
     // Counters our COMP (not just a lane pick): a champ that beats our forming
     // archetype is worth denying — a key no-scouting ban signal.
