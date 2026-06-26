@@ -1598,6 +1598,32 @@ function teamRecord() {
   const r = b && b.record ? b.record : { games: 0, wins: 0 }
   return { games: r.games, wins: r.wins, losses: r.games - r.wins, wr: r.games ? Math.round(r.wins / r.games * 100) : 0 }
 }
+// RUNNING (all-time) record per mode — NEVER resets. Accumulates every distinct full-roster
+// game (deduped by gameId across both the Riot pull and our live captures) into localStorage,
+// so it only grows — unaffected by the Riot pull's sliding window or a data refresh.
+const RUNREC_KEY = 'kqf_running_record_v1'
+function loadRunRec() { try { return JSON.parse(localStorage.getItem(RUNREC_KEY)) || {} } catch { return {} } }
+function updateRunningRecord() {
+  const rec = loadRunRec()
+  for (const mode of ['flex', 'ranked5']) {
+    const m = rec[mode] = rec[mode] || { wins: 0, losses: 0, ids: {} }
+    const rb = window.ROSTER_DATA && window.ROSTER_DATA[mode]
+    for (const g of ((rb && rb.games) || [])) {                     // Riot full-roster games
+      if (g.id != null && !(g.id in m.ids)) { m.ids[g.id] = !!g.win; g.win ? m.wins++ : m.losses++ }
+    }
+    for (const d of historyLoad()) {                                // live-captured games
+      if ((d.mode || 'flex') !== mode || (d.result !== 'win' && d.result !== 'loss')) continue
+      if (d.gameId != null && !(d.gameId in m.ids)) { m.ids[d.gameId] = d.result === 'win'; d.result === 'win' ? m.wins++ : m.losses++ }
+    }
+  }
+  try { localStorage.setItem(RUNREC_KEY, JSON.stringify(rec)) } catch {}
+  return rec
+}
+function runningRecord(mode) {
+  const r = loadRunRec()[mode] || { wins: 0, losses: 0 }
+  const games = r.wins + r.losses
+  return { wins: r.wins, losses: r.losses, games, wr: games ? Math.round(r.wins / games * 100) : 0 }
+}
 // Custom players the user added (persisted in this browser). Merged with KQF_ROSTER.
 function customPlayers() { try { return JSON.parse(localStorage.getItem('kqf_custom_players') || '[]') } catch { return [] } }
 // Persist the LINEUP (who's active + each player's role) so the roster reloads exactly
@@ -2018,7 +2044,9 @@ function renderRoster() {
 // Tracker view — team + per-player games/win-rate from full-roster Riot games,
 // for the CURRENT mode (Flex vs Ranked 5's).
 function renderTracker(el) {
+  updateRunningRecord()                 // keep the all-time (never-reset) record current
   const tr = teamRecord()
+  const all = runningRecord(mainTab)
   const b = rosterBucket(true)
   const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const wrCls = w => w >= 50 ? 'good' : 'bad'
@@ -2033,7 +2061,7 @@ function renderTracker(el) {
   }).join('')
   // Individual games — the actual full-roster match history for this mode.
   const games = (b && b.games) || []
-  const gamesHtml = games.map(g => {
+  const gamesHtml = games.slice(0, 10).map(g => {
     const champs = roster.filter(p => g.picks[p.name]).map(p => {
       const c = CHAMPS[g.picks[p.name]]
       return c ? `<img class="rg-champ" src="${c.img}" title="${(p.display || p.name)}: ${c.name}" alt="${c.name}"/>` : ''
@@ -2077,15 +2105,15 @@ function renderTracker(el) {
   }
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
-      <span class="track-team-lbl">TEAM RECORD · ${modeLbl}</span>
-      <span class="track-team-rec">${tr.wins}-${tr.losses}</span>
-      <span class="track-team-wr ${wrCls(tr.wr)}">${tr.games ? tr.wr + '%' : '—'}</span>
-      <span class="track-team-n">${tr.games} full-roster game${tr.games !== 1 ? 's' : ''}</span>
+      <span class="track-team-lbl">RECORD · ${modeLbl} · all-time</span>
+      <span class="track-team-rec">${all.wins}-${all.losses}</span>
+      <span class="track-team-wr ${wrCls(all.wr)}">${all.games ? all.wr + '%' : '—'}</span>
+      <span class="track-team-n">${all.games} game${all.games !== 1 ? 's' : ''} · never resets</span>
     </div>
     <div class="track-cards">${cards}</div>
     ${analysis}
-    ${games.length ? `<div class="rg-list-lbl">Match history (${games.length})</div><div class="rg-list">${gamesHtml}</div>` : ''}
-    ${tr.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet${mainTab === 'ranked5' ? " — Ranked 5's launches Jun 26" : ''}. Play a full 5-stack, then refresh the Riot data.</div>`}
+    ${games.length ? `<div class="rg-list-lbl">Match history · last ${Math.min(10, games.length)}</div><div class="rg-list">${gamesHtml}</div>` : ''}
+    ${all.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet${mainTab === 'ranked5' ? " — Ranked 5's launches Jun 26" : ''}. Play a full 5-stack, then refresh the Riot data.</div>`}
   </div>`
 }
 
