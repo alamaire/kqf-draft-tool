@@ -3469,10 +3469,13 @@ function getSuggestions() {
       const rolePlayer = isOurs ? roster.find(pp => pp.active && pp.role !== 'sub' && pp.role === role) : null
       const gatedOut = rolePlayer && PLAYER_PREFS[rolePlayer.name] && (PLAYER_PREFS[rolePlayer.name].gated || []).includes(mainTab)
         && !prefTier(rolePlayer.name, c.id, role)
+      // EXCLUDE: if the player in this role flat-out doesn't play this champ, never suggest
+      // it for them — even if it's a strong meta pick (e.g. Aatrox top for Mike).
+      const excludedOut = rolePlayer && prefExcluded(rolePlayer.name, c.id)
       // Swain is a situational flex — only suggest him when the enemy is melee-heavy
       // (≥4 melee champs), where his pull + drain dominate. Otherwise don't propose him.
       const swainBlocked = isOurs && c.name === 'Swain' && pEnemy.filter(isMelee).length < 4
-      if (!gatedOut && !swainBlocked) {
+      if (!gatedOut && !excludedOut && !swainBlocked) {
         let reason = generatePickReason(c, player, entry, pAlly, pEnemy, isOurs, laneOpp, role, allyByRole)
         if (dmgNeed) reason = `Your comp has no ${dmgNeed} damage — this adds it (so the enemy can't just stack one resist). ` + (reason || '')
         const offTag = fit < 0.6 ? ' · off-role' : ''
