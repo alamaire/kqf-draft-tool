@@ -3504,11 +3504,15 @@ function getSuggestions() {
       // them for a later pick to counter the enemy. While we still have ≥2 roles open and the
       // enemy hasn't revealed this lane yet, gently delay our top/mid and bring jungle/adc/
       // support forward. Once the enemy laner shows (laneOpp set), it's counterpick time — no delay.
+      // PICK ORDER: hold a solo lane (top/mid) for the counterpick ONLY when it's risky to blind
+      // AND not a comfort pick — so a counterable meta solo waits for the enemy laner to show,
+      // but a safe main (e.g. Shen for Mike) stays high priority even with the enemy top unseen.
+      // No blanket boost to other roles (that buried strong solo picks); this only delays risky solos.
       let pickOrderAdj = 0
-      if (isOurs && roles.length >= 2) {
-        const solo = role === 'top' || role === 'mid'
-        if (solo && !laneOpp) pickOrderAdj = -0.05          // hold the solo counterpick for later
-        else if (!solo) pickOrderAdj = 0.03                 // lock the safer roles first
+      if (isOurs && roles.length >= 2 && (role === 'top' || role === 'mid') && !laneOpp) {
+        const tier = rolePrefTier(c.id, role)
+        const comfortPick = tier === 'signature' || tier === 'strong' || comfortF >= 0.5
+        if (!comfortPick && blindRisk > 0.03) pickOrderAdj = -0.05
       }
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
