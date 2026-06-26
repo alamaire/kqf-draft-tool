@@ -3500,9 +3500,19 @@ function getSuggestions() {
           }
         }
       }
+      // PICK ORDER: solo lanes (top/mid) are the most counterpick-sensitive, so ideally SAVE
+      // them for a later pick to counter the enemy. While we still have ≥2 roles open and the
+      // enemy hasn't revealed this lane yet, gently delay our top/mid and bring jungle/adc/
+      // support forward. Once the enemy laner shows (laneOpp set), it's counterpick time — no delay.
+      let pickOrderAdj = 0
+      if (isOurs && roles.length >= 2) {
+        const solo = role === 'top' || role === 'mid'
+        if (solo && !laneOpp) pickOrderAdj = -0.05          // hold the solo counterpick for later
+        else if (!solo) pickOrderAdj = 0.03                 // lock the safer roles first
+      }
       const score = famScore * W.fam + (m.score * fit) * W.meta + proPk * W.pro
                   + (lane || 0) * wLane + comp * wComp + others * wOthers + syn * wSyn
-                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * (1.6 + Math.min(1, (enemyProfile.n || 0) / 5) * 1.4) + styleBoost + modeBias + itemBoost + dmgBalance + luluAdj + botAdj + comfortF * 0.03 - cByPen - offRolePen - kitPen
+                  + laneStrEff * 0.06 + timingFit + timing + histBonus + rgPair + archBoost * (1.6 + Math.min(1, (enemyProfile.n || 0) / 5) * 1.4) + styleBoost + modeBias + itemBoost + dmgBalance + luluAdj + botAdj + pickOrderAdj + comfortF * 0.03 - cByPen - offRolePen - kitPen
       const sc100 = Math.max(0, Math.round(score * 100))
       // GATED player: in the gated mode (e.g. Shane in Ranked 5's), only suggest champs
       // in their vouched pool for their role — don't propose off-pool picks for them.
