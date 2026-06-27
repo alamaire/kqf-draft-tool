@@ -430,10 +430,9 @@ http.createServer(async (req, res) => {
   console.log(lcuAuth() ? 'League client detected ✓' : 'League client not detected yet (start it & enter champ select).');
   for (const d of loadDrafts()) if (d.gameId) watch.savedIds.add(d.gameId);   // don't re-save known games
   await loadChampNames();
-  setInterval(watchTick, 3000);   // capture champ select → game → result
-  // Safety net: auto-save completed full-roster games the live watcher missed (incl. while the
-  // companion was down/restarting). Runs shortly after boot, then every 60s.
-  setTimeout(() => { const a = lcuAuth(); if (a) reconcileMatchHistory(a); }, 8000);
-  setInterval(() => { const a = lcuAuth(); if (a) reconcileMatchHistory(a); }, 60000);
+  setInterval(watchTick, 3000);   // capture champ select → game → result (LIVE only)
+  // NOTE: client match-history reconcile is intentionally DISABLED — tracking is a running update
+  // from live captures as games are played; op.gg is used to verify/fill stats. (reconcileMatchHistory
+  // is kept in the file but not scheduled.)
   console.log('Live draft auto-capture armed.');
 });
