@@ -7,6 +7,20 @@ and fills the Stats tab + backfills missing games automatically.
 
 The companion runs at **http://localhost:5500** (must be running — it serves the tool too).
 
+## Team protocol (read first)
+- **Don't start or restart the companion.** It's already running the current code (Claude Code keeps it
+  up). If you run `node companion.js` you'll get `EADDRINUSE :::5500` — that's expected and means it's
+  already up. Just use the endpoints; don't touch the process.
+- **Handshake:** `GET http://localhost:5500/api/status` confirms you're connected to the right
+  companion and shows the live state (recorded games per mode, how many players have stats, last
+  update). If it responds with `ok:true`, you're good to go.
+- **Division of labor:** Claude Code owns the tool, companion, endpoints, and live game capture.
+  **You own reading op.gg in the browser and POSTing accurate data.** Don't edit files or code.
+- **Loop:** capture happens automatically when a game ends → you read op.gg → POST stats/games →
+  the user hits "⟳ Sync from Cowork" on the Stats tab (or reopens it) to see your numbers.
+- **If something's off** (a field maps wrong, an endpoint rejects your payload), report exactly what
+  you sent and what happened back through the user, and Claude Code will fix the mapping.
+
 ## The roster (read these op.gg accounts)
 | Player | op.gg URL | role |
 |---|---|---|

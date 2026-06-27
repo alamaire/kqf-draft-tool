@@ -14,6 +14,7 @@ const { execFile } = require('child_process');
 
 const PORT = process.env.PORT || 5500;
 const ROOT = path.resolve(__dirname);
+const COMPANION_BUILD = '2026-06-27.cowork';   // bumped on companion changes — shown by /api/status
 const LOCKFILES = [
   'C:\\Riot Games\\League of Legends\\lockfile',
   process.env.LOCALAPPDATA + '\\Riot Games\\League of Legends\\lockfile',
@@ -469,6 +470,16 @@ http.createServer(async (req, res) => {
   const STATS_FILE = path.join(ROOT, 'roster-stats.json');
   const loadStats = () => { try { return JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')) || {}; } catch { return {}; } };
   if (url === '/api/roster-stats') return J(res, 200, loadStats());
+  // Team handshake — Cowork hits this to confirm it's talking to the right (current) companion and
+  // to see the same live state Claude Code sees. If this responds, the companion is up-to-date.
+  if (url === '/api/status') {
+    const drafts = loadDrafts(), st = loadStats();
+    const byMode = drafts.reduce((a, d) => { const m = resolveMode(d.queueId) || d.mode || '?'; a[m] = (a[m] || 0) + 1; return a; }, {});
+    return J(res, 200, { ok: true, companion: COMPANION_BUILD, contract: '/COWORK.md',
+      recordedGames: drafts.length, gamesByMode: byMode,
+      statsPlayers: { flex: Object.keys(st.flex || {}).length, ranked5: Object.keys(st.ranked5 || {}).length }, statsUpdated: st.updated || null,
+      endpoints: ['GET /api/live-drafts', 'POST /api/add-game', 'GET /api/roster-stats', 'POST /api/set-roster-stats'] });
+  }
   if (req.method === 'POST' && url === '/api/set-roster-stats') {
     let body = ''; req.on('data', c => { body += c; if (body.length > 200000) req.destroy(); });
     req.on('end', () => {
