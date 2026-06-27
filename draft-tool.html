@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.key'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.enemyrole'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -2217,28 +2217,34 @@ function renderTracker(el) {
 function renderEnemyTab(el) {
   const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
-  const rec = {}; let gamesWithData = 0
+  // Bucket by the role each enemy champ actually PLAYED in our games (stored at ingest from the
+  // draft slot). Falls back to the champ's meta role for older flat-stored data.
+  const byRole = { top: {}, jungle: {}, mid: {}, adc: {}, support: {}, other: {} }
+  let gamesWithData = 0
   for (const g of Object.values(m)) {
     if (!(g.enemy && g.enemy.length)) continue
     gamesWithData++
-    for (const cid of g.enemy) { const r = rec[cid] = rec[cid] || { w: 0, l: 0 }; g.win ? r.w++ : r.l++ }
+    for (const e of g.enemy) {
+      const cid = (typeof e === 'object') ? e.cid : e
+      const role = (typeof e === 'object' && e.role) ? e.role : primaryRole(cid)
+      const bucket = byRole[role] || byRole.other
+      const r = bucket[cid] = bucket[cid] || { w: 0, l: 0 }; g.win ? r.w++ : r.l++
+    }
   }
-  const all = Object.entries(rec).map(([cid, r]) => ({ cid: +cid, w: r.w, l: r.l, n: r.w + r.l, wr: (r.w + r.l) ? Math.round(r.w / (r.w + r.l) * 100) : 0 }))
-  const byRole = { top: [], jungle: [], mid: [], adc: [], support: [], other: [] }
-  for (const e of all) { const role = primaryRole(e.cid); (byRole[role] || byRole.other).push(e) }
-  const cell = e => {
-    const c = CHAMPS[e.cid]; if (!c) return ''
-    return `<div class="ec-cell" title="${c.name}: ${e.w}W ${e.l}L (${e.wr}%)"><img src="${c.img}" alt="${c.name}"/><div class="ec-rec ${e.wr >= 50 ? 'good' : 'bad'}">${e.w}-${e.l}</div></div>`
+  const cell = (cid, r) => {
+    const c = CHAMPS[cid]; if (!c) return ''
+    const n = r.w + r.l, wr = n ? Math.round(r.w / n * 100) : 0
+    return `<div class="ec-cell" title="${c.name}: ${r.w}W ${r.l}L (${wr}%)"><img src="${c.img}" alt="${c.name}"/><div class="ec-rec ${wr >= 50 ? 'good' : 'bad'}">${r.w}-${r.l}</div></div>`
   }
-  const row = (lbl, arr) => {
-    if (!arr.length) return ''
-    arr.sort((a, b) => b.n - a.n || a.wr - b.wr)
-    return `<div class="pb-row"><div class="pb-lbl">${lbl}</div><div class="pb-cells">${arr.map(cell).join('')}</div></div>`
+  const row = (lbl, bucket) => {
+    const entries = Object.entries(bucket); if (!entries.length) return ''
+    entries.sort((a, b) => (b[1].w + b[1].l) - (a[1].w + a[1].l))
+    return `<div class="pb-row"><div class="pb-lbl">${lbl}</div><div class="pb-cells">${entries.map(([cid, r]) => cell(+cid, r)).join('')}</div></div>`
   }
   el.style.display = 'block'
   el.innerHTML = `<div class="ec-wrap">
-    <div class="ec-title">⚔ Enemy Champions · ${modeLbl} <span class="ec-sub">W/L when faced · by role · ${gamesWithData} game${gamesWithData !== 1 ? 's' : ''} with draft data</span></div>
-    ${all.length ? [['TOP', 'top'], ['JUNGLE', 'jungle'], ['MID', 'mid'], ['BOT', 'adc'], ['SUPPORT', 'support']].map(([l, r]) => row(l, byRole[r])).join('') + row('OTHER', byRole.other)
+    <div class="ec-title">⚔ Enemy Champions · ${modeLbl} <span class="ec-sub">W/L by the role they played · ${gamesWithData} game${gamesWithData !== 1 ? 's' : ''} with draft data</span></div>
+    ${gamesWithData ? [['TOP', 'top'], ['JUNGLE', 'jungle'], ['MID', 'mid'], ['BOT', 'adc'], ['SUPPORT', 'support']].map(([l, r]) => row(l, byRole[r])).join('') + row('OTHER', byRole.other)
       : `<div class="empty-msg">No enemy draft data yet for ${modeLbl}. Enemy champions are recorded from games captured live.</div>`}
   </div>`
 }
@@ -2252,7 +2258,7 @@ function renderPicksBansTab(el) {
   for (const g of Object.values(m)) {
     games++
     for (const cid of (g.bans || [])) { banCount[cid] = (banCount[cid] || 0) + 1; allChamps.add(cid) }
-    for (const cid of (g.enemy || [])) allChamps.add(cid)
+    for (const e of (g.enemy || [])) allChamps.add(typeof e === 'object' ? e.cid : e)
     for (const k in (g.picks || {})) {
       const cid = g.picks[k]; allChamps.add(cid)
       const role = pickByRole[roleOf[k]] ? roleOf[k] : 'other'
@@ -3175,7 +3181,7 @@ function historyReplace(arr) {
 // 40-game window, and only admits validated Flex(440)/Ranked5(710) full-roster games, so stale
 // or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
 // cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
-const GAMES_KEY = 'kqf_games_v4'   // v4: fixed per-game keying (synthetic ids no longer collapse to one champ)
+const GAMES_KEY = 'kqf_games_v5'   // v5: enemy champs now stored with the role they played (re-ingest)
 // Normalize a gameId for use as a UNIQUE per-game store key. Strips ONLY a leading Riot platform
 // prefix (NA1_5585… → 5585…) so a real id and its bare-number form match. Leaves synthetic Cowork
 // ids whole (opgg-2026-06-27-kaisa_rell_… stays unique — earlier this wrongly became "xerath").
@@ -3199,8 +3205,10 @@ function ingestGames() {
       const g = captureToGame(d)
       const fp = fpOf(g.picks, d.date)
       if (fp.split('|')[0] && seenFp.has(fp)) continue   // same match already in the store (other id)
-      const es = d.ourSide === 'blue' ? 'red' : 'blue'
-      const enemy = ((d[es] && d[es].picks) || []).map(n => NAME_ID[n]).filter(Boolean)
+      const es = d.ourSide === 'blue' ? 'red' : 'blue', eside = d[es] || {}
+      // Store each enemy champ WITH the role it played (from the draft's slot order), so the Enemy
+      // Champions tab groups by the role actually played in our games, not the champ's meta role.
+      const enemy = (eside.picks || []).map((n, idx) => { const cid = NAME_ID[n]; return cid ? { cid, role: (eside.roles && eside.roles[idx]) || ALL_ROLES[idx] || null } : null }).filter(Boolean)
       s[mode][k] = { win: d.result === 'win', date: d.date, picks: g.picks, bans: (g.bans && g.bans.our) || [], enemy }
       seenFp.add(fp); changed = true
     }

@@ -87,6 +87,14 @@ Re-sending the same synthetic id is safe.
 **Include both teams' picks + bans** (expand the match for the full draft) — Enemy Champions and Picks
 & Bans need the enemy champs + our bans. If a match won't expand, send at least both teams' picks.
 
+**Order picks by role: top, jungle, mid, adc, support** — for BOTH `blue.picks` and `red.picks`. The
+Enemy Champions tab now buckets each enemy champ by the role it played, read from its slot in
+`red.picks` (index 0 = top … 4 = support). Wrong order → wrong role bucket.
+
+**Going forward, you don't need to backfill picks/bans for new games** — the Riot client auto-captures
+the full draft (picks + bans + result) live when each game completes. Your job for new games is just
+the op.gg **stats** (`/api/set-roster-stats`) + verification. Backfill is only for past/missing games.
+
 ```
 POST http://localhost:5500/api/add-game
 Content-Type: application/json
