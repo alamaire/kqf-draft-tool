@@ -340,6 +340,7 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .pb-cell{width:34px;text-align:center}
 .pb-cell img{width:32px;height:32px;border-radius:5px;border:1px solid var(--line)}
 .pb-n{font-size:10px;font-weight:700;color:var(--txt)}
+.pb-wr{font-size:9px;font-weight:700}
 .st-table{width:100%;border-collapse:collapse;font-size:11px}
 .st-table th{text-align:center;color:var(--gray-l);font-weight:600;font-size:10px;padding:4px 6px;border-bottom:1px solid var(--line)}
 .st-table td{text-align:center;padding:4px 6px;border-bottom:1px solid var(--line)}
@@ -2187,33 +2188,6 @@ function renderTracker(el) {
       : ''
     return `<div class="rg-row"><span class="rg-res ${g.win ? 'w' : 'l'}">${g.win ? 'W' : 'L'}</span><span class="rg-date">${d}</span><span class="rg-champs">${champs}</span>${bansHtml}</div>`
   }).join('')
-  // ── Roster Analysis — compiled from saved + auto-captured drafts (both teams known).
-  // Deepens as more games are captured. Each line only shows once it has ≥2-game signal.
-  const ins = rosterInsights()
-  const raLine = (label, items, fmt) => items && items.length
-    ? `<div class="ra-row"><span class="ra-lbl">${label}</span><span class="ra-val">${items.slice(0, 4).map(fmt).join(' · ')}</span></div>` : ''
-  let analysis = ''
-  if (ins.games >= 3) {
-    const sideTxt = []
-    const sb = ins.side.blue, sr = ins.side.red
-    if (sb.w + sb.l) sideTxt.push(`Blue ${sb.w}-${sb.l}`)
-    if (sr.w + sr.l) sideTxt.push(`Red ${sr.w}-${sr.l}`)
-    analysis = `<div class="ra-block">
-      <div class="ra-title">📊 Roster Analysis · ${modeLbl} · ${ins.games} game${ins.games !== 1 ? 's' : ''}</div>
-      ${sideTxt.length ? `<div class="ra-row"><span class="ra-lbl">By side</span><span class="ra-val">${sideTxt.join(' · ')}</span></div>` : ''}
-      ${raLine('Win on comp', ins.bestComps, c => `${c.k} ${c.w}-${c.l}`)}
-      ${raLine('Lose on comp', ins.worstComps, c => `${c.k} ${c.w}-${c.l}`)}
-      ${raLine('⚠ Struggle vs', ins.struggles.champs, c => `${c.name} (${c.w}-${c.l})`)}
-      ${raLine('⚠ vs comp', ins.struggles.archs, c => `${c.arch} (${c.w}-${c.l})`)}
-      ${raLine('⚠ vs timing', ins.struggles.timing, c => `${c.timing} (${c.w}-${c.l})`)}
-      ${raLine('⚠ vs duos', ins.struggles.duos, c => `${c.duo} (${c.w}-${c.l})`)}
-      ${raLine('Best picks', ins.bestChamps, c => `${c.k} ${c.w}-${c.l}`)}
-      ${raLine('Weak picks', ins.worstChamps, c => `${c.k} ${c.w}-${c.l}`)}
-    </div>`
-  } else {
-    const emptyMsg = `Builds from full-roster ${modeLbl} games (need ≥3) — auto-captured live as you play. ${ins.games} so far.`
-    analysis = `<div class="ra-block"><div class="ra-title">📊 Roster Analysis · ${modeLbl}</div><div class="ra-row" style="color:var(--gray-l)">${emptyMsg}</div></div>`
-  }
   el.innerHTML = `<div class="tracker">
     <div class="track-team">
       <span class="track-team-lbl">RECORD · ${modeLbl} · all-time</span>
@@ -2222,7 +2196,6 @@ function renderTracker(el) {
       <span class="track-team-n">${all.games} game${all.games !== 1 ? 's' : ''} · counts forever</span>
     </div>
     <div class="track-cards">${cards}</div>
-    ${analysis}
     ${games.length ? `<div class="rg-list-lbl">Match history · last ${Math.min(10, games.length)}</div><div class="rg-list">${gamesHtml}</div>` : ''}
     ${all.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet. Play a full 5-stack with the companion running — it auto-captures live.</div>`}
   </div>`
@@ -2261,18 +2234,29 @@ function renderPicksBansTab(el) {
   for (const g of Object.values(m)) {
     games++
     for (const cid of (g.bans || [])) banCount[cid] = (banCount[cid] || 0) + 1
-    for (const k in (g.picks || {})) { const cid = g.picks[k], role = pickByRole[roleOf[k]] ? roleOf[k] : 'other'; pickByRole[role][cid] = (pickByRole[role][cid] || 0) + 1 }
+    for (const k in (g.picks || {})) {
+      const cid = g.picks[k], role = pickByRole[roleOf[k]] ? roleOf[k] : 'other'
+      const e = pickByRole[role][cid] = pickByRole[role][cid] || { n: 0, w: 0 }; e.n++; if (g.win) e.w++
+    }
   }
-  const row = (label, counts) => {
+  // Pick rows show each champ's games + WIN RATE for our roster in this mode (color-coded).
+  const pickRow = (label, counts) => {
+    const list = Object.entries(counts).map(([cid, r]) => ({ cid: +cid, n: r.n, w: r.w, wr: Math.round(r.w / r.n * 100) })).sort((a, b) => b.n - a.n || b.wr - a.wr)
+    if (!list.length) return ''
+    const imgs = list.map(e => { const c = CHAMPS[e.cid]; return c ? `<div class="pb-cell"><img src="${c.img}" title="${c.name}: ${e.w}W ${e.n - e.w}L" alt=""/><div class="pb-n">${e.n}</div><div class="pb-wr ${e.wr >= 50 ? 'good' : 'bad'}">${e.wr}%</div></div>` : '' }).join('')
+    return `<div class="pb-row"><div class="pb-lbl">${label}</div><div class="pb-cells">${imgs}</div></div>`
+  }
+  // Ban row shows ban counts (we didn't play them, so no WR).
+  const banRow = counts => {
     const list = Object.entries(counts).map(([cid, n]) => ({ cid: +cid, n })).sort((a, b) => b.n - a.n)
     if (!list.length) return ''
-    const imgs = list.map(e => { const c = CHAMPS[e.cid]; return c ? `<div class="pb-cell"><img src="${c.img}" title="${c.name}: ${e.n}" alt=""/><div class="pb-n">${e.n}</div></div>` : '' }).join('')
-    return `<div class="pb-row"><div class="pb-lbl">${label}</div><div class="pb-cells">${imgs}</div></div>`
+    const imgs = list.map(e => { const c = CHAMPS[e.cid]; return c ? `<div class="pb-cell"><img src="${c.img}" title="${c.name}: banned ${e.n}" alt=""/><div class="pb-n">${e.n}</div></div>` : '' }).join('')
+    return `<div class="pb-row"><div class="pb-lbl">BANS</div><div class="pb-cells">${imgs}</div></div>`
   }
   el.style.display = 'block'
   el.innerHTML = `<div class="pb-wrap">
-    <div class="pb-title">📋 Picks & Bans · ${modeLbl} <span class="ec-sub">${games} game${games !== 1 ? 's' : ''}</span></div>
-    ${games ? row('BANS', banCount) + ['top', 'jungle', 'mid', 'adc', 'support'].map(r => row(ROLE_LABELS[r] || r, pickByRole[r])).join('') + row('Other', pickByRole.other)
+    <div class="pb-title">📋 Picks & Bans · ${modeLbl} <span class="ec-sub">${games} game${games !== 1 ? 's' : ''} · pick win rate for our roster</span></div>
+    ${games ? banRow(banCount) + ['top', 'jungle', 'mid', 'adc', 'support'].map(r => pickRow(ROLE_LABELS[r] || r, pickByRole[r])).join('') + pickRow('Other', pickByRole.other)
       : `<div class="empty-msg">No ${modeLbl} games yet. Our picks & bans are recorded as you play.</div>`}
   </div>`
 }
