@@ -326,6 +326,8 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .track-team-rec{font-size:16px;font-weight:800;color:var(--gold-l)}
 .track-team-wr{font-size:14px;font-weight:800}
 .track-team-n{font-size:10px;color:var(--gray-l);margin-left:auto}
+.track-reset{font-size:10px;color:var(--gray-l);margin-left:10px;cursor:pointer;border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+.track-reset:hover{color:var(--red);border-color:var(--red)}
 .track-cards{display:flex;gap:6px;flex-wrap:wrap}
 .track-card{flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--gold-d);border-radius:5px;background:var(--dark2)}
 .track-card.out{opacity:.45}
@@ -1619,14 +1621,17 @@ async function mergeLiveDrafts() {
     const r = await fetch('/api/live-drafts', { cache: 'no-store' })
     if (!r.ok) return
     const caps = await r.json()
-    if (!Array.isArray(caps) || !caps.length) return
-    const have = new Set(historyLoad().map(d => d.gameId).filter(Boolean))
-    let added = 0
-    for (const d of caps.slice().reverse()) {   // oldest first so newest ends up on top
-      if (!d || (d.gameId && have.has(d.gameId))) continue
-      historySave(d); have.add(d.gameId); added++
-    }
-    if (added && typeof render === 'function') render()
+    if (!Array.isArray(caps)) return
+    // AUTHORITATIVE sync: the server's live-drafts.json is the source of truth for captured
+    // games. Mirror it (so stale/mis-tagged captures we cleaned server-side disappear here too),
+    // while preserving hand-saved drafts (those have no gameId).
+    const local = historyLoad()
+    const manual = local.filter(d => d && d.gameId == null)
+    const seen = new Set(), captured = []
+    for (const d of caps) { if (!d || d.gameId == null || seen.has(d.gameId)) continue; seen.add(d.gameId); captured.push(d) }
+    const merged = [...captured, ...manual]
+    const sig = a => JSON.stringify(a.map(d => (d.gameId != null ? d.gameId : 'm') + ':' + (d.result || '')))
+    if (sig(merged) !== sig(local)) { historyReplace(merged); if (typeof render === 'function') render() }
   } catch { /* companion went away — ignore */ }
 }
 window.startLive = startLive
@@ -2107,26 +2112,23 @@ function captureToGame(d) {
 // Full-roster games for the CURRENT mode: Riot pull + live captures, deduped by gameId, newest
 // first — so captured games (e.g. Ranked 5's, before any Riot re-pull) show in the Tracker.
 function modeGames() {
-  const b = rosterBucket(true)
-  const seen = new Set(), out = []
-  for (const g of ((b && b.games) || [])) { if (g.id != null) { if (seen.has(g.id)) continue; seen.add(g.id) } out.push(g) }
-  for (const d of historyLoad()) {
-    if ((d.mode || 'flex') !== mainTab || (d.result !== 'win' && d.result !== 'loss')) continue
-    if (d.gameId != null) { if (seen.has(d.gameId)) continue; seen.add(d.gameId) }
-    out.push(captureToGame(d))
-  }
-  out.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-  return out
+  const s = ingestGames()
+  const m = s[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
+  return Object.entries(m)
+    .map(([id, g]) => ({ id, win: !!g.win, date: g.date, picks: g.picks || {}, bans: { our: g.bans || [] }, enemy: g.enemy || [] }))
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
 }
 function renderTracker(el) {
-  updateRunningRecord()                 // keep the all-time (never-reset) record current
-  const all = runningRecord(mainTab)
   const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const wrCls = w => w >= 50 ? 'good' : 'bad'
-  // Individual games — full-roster match history for THIS mode only: Riot pull PLUS our live
-  // captures (deduped by gameId). Per-player records are derived from exactly these games, so
-  // every roster member who played gets credited (Riot data AND live captures, this mode only).
+  // Individual games — full-roster match history for THIS mode only, from the persistent store
+  // (Riot pull + live captures, validated, forever). The team record is the PER-GAME count of
+  // these (one W/L per full-roster game — not a sum of individual records), and per-player
+  // records credit each roster member only for the games they actually played in this mode.
   const games = modeGames()
+  const all = { wins: 0, losses: 0, games: games.length, wr: 0 }
+  for (const g of games) g.win ? all.wins++ : all.losses++
+  all.wr = all.games ? Math.round(all.wins / all.games * 100) : 0
   const pRec = {}
   for (const g of games) for (const k in (g.picks || {})) {
     const r = pRec[k] = pRec[k] || { games: 0, wins: 0 }; r.games++; if (g.win) r.wins++
@@ -2186,7 +2188,8 @@ function renderTracker(el) {
       <span class="track-team-lbl">RECORD · ${modeLbl} · all-time</span>
       <span class="track-team-rec">${all.wins}-${all.losses}</span>
       <span class="track-team-wr ${wrCls(all.wr)}">${all.games ? all.wr + '%' : '—'}</span>
-      <span class="track-team-n">${all.games} game${all.games !== 1 ? 's' : ''} · never resets</span>
+      <span class="track-team-n">${all.games} game${all.games !== 1 ? 's' : ''} · counts forever</span>
+      <span class="track-reset" title="Reset all tracker stats to 0" onclick="resetStats()">↺ reset</span>
     </div>
     <div class="track-cards">${cards}</div>
     ${analysis}
@@ -3006,6 +3009,54 @@ function historySave(entry) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch {}
   _histCache = null; _archWRCache = null   // re-learn from the updated record
 }
+function historyReplace(arr) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)) } catch {}
+  _histCache = null; _archWRCache = null
+}
+
+// ── Persistent full-roster game store (per mode) — the SINGLE source of truth for the Tracker
+// (and the upcoming Enemy/Picks-Bans tabs). Grows FOREVER: it never shrinks with Riot's sliding
+// 40-game window, and only admits validated Flex(440)/Ranked5(2400) full-roster games, so stale
+// or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
+// cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
+const GAMES_KEY = 'kqf_games_v1', RESET_KEY = 'kqf_stats_reset_at'
+const numId = id => String(id == null ? '' : id).replace(/^.*_/, '')
+function statsResetAt() { return +localStorage.getItem(RESET_KEY) || 0 }
+function ingestGames() {
+  let s; try { s = JSON.parse(localStorage.getItem(GAMES_KEY)) } catch {}
+  s = s || {}; s.flex = s.flex || {}; s.ranked5 = s.ranked5 || {}
+  const cutoff = statsResetAt(); let changed = false
+  const after = d => !cutoff || (new Date(d || 0).getTime() > cutoff)
+  for (const mode of ['flex', 'ranked5']) {
+    const wantQ = mode === 'ranked5' ? 2400 : 440
+    const rb = window.ROSTER_DATA && window.ROSTER_DATA[mode]
+    for (const g of ((rb && rb.games) || [])) {           // Riot pull: already full-roster + mode-bucketed
+      const k = numId(g.id); if (!k || s[mode][k] || !after(g.date)) continue
+      s[mode][k] = { win: !!g.win, date: g.date, picks: g.picks || {}, bans: (g.bans && g.bans.our) || [], enemy: [] }
+      changed = true
+    }
+    for (const d of historyLoad()) {                       // live captures: validate by queueId
+      const k = numId(d.gameId)
+      if (d.queueId !== wantQ || !k || s[mode][k] || !after(d.date)) continue
+      if (d.result !== 'win' && d.result !== 'loss') continue
+      const g = captureToGame(d)
+      const es = d.ourSide === 'blue' ? 'red' : 'blue'
+      const enemy = ((d[es] && d[es].picks) || []).map(n => NAME_ID[n]).filter(Boolean)
+      s[mode][k] = { win: d.result === 'win', date: d.date, picks: g.picks, bans: (g.bans && g.bans.our) || [], enemy }
+      changed = true
+    }
+  }
+  if (changed) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(s)) } catch {} }
+  return s
+}
+function resetStats() {
+  if (!confirm('Reset ALL tracker stats to 0? Games you play from now on will count fresh. (Saved drafts are kept.)')) return
+  localStorage.setItem(RESET_KEY, String(Date.now()))
+  try { localStorage.removeItem(GAMES_KEY) } catch {}
+  if (typeof renderRoster === 'function') renderRoster()
+  if (typeof render === 'function') render()
+}
+window.resetStats = resetStats
 
 // ── Learning from our own match history ──────────────────────────────────────
 // Dissects every saved win/loss draft (from OUR side) into three records:
