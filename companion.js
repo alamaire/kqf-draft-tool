@@ -193,9 +193,32 @@ let myPuuid = null;
 const watch = { pending: null, savedIds: new Set(), tries: 0 };
 
 function loadDrafts() { try { return JSON.parse(fs.readFileSync(DRAFTS_FILE, 'utf8')) || []; } catch { return []; } }
+// Fingerprint a game so the SAME match dedupes across sources — a live capture (real Riot gameId)
+// and a Cowork op.gg backfill (synthetic gameId) of the same game must collapse to one row.
+function fingerprintOf(e) {
+  const our = e[e.ourSide] || {};
+  const champs = (our.picks || []).filter(Boolean).map(c => String(c).toLowerCase()).sort().join(',');
+  return (resolveMode(e.queueId) || e.mode || '?') + '|' + champs + '|' + (e.date || '').slice(0, 10);
+}
+const isRealId = id => /^\d+$/.test(String(id == null ? '' : id));   // real Riot id vs synthetic "opgg-…"
+function entryRichness(e) {
+  const bans = (((e.blue && e.blue.bans) || []).filter(Boolean).length) + (((e.red && e.red.bans) || []).filter(Boolean).length);
+  const enemy = (((e[e.ourSide === 'blue' ? 'red' : 'blue'] || {}).picks) || []).filter(Boolean).length;
+  return (isRealId(e.gameId) ? 4 : 0) + (bans > 0 ? 2 : 0) + (enemy > 0 ? 1 : 0) + (e.result ? 1 : 0);
+}
 function saveDraftEntry(entry) {
   const all = loadDrafts();
-  if (all.some(d => d.gameId === entry.gameId)) return;
+  if (entry.gameId != null && all.some(d => d.gameId === entry.gameId)) return;   // exact gameId already saved
+  // Same match from a different source? Keep the richer one (real id / bans / enemy / result).
+  const fp = fingerprintOf(entry);
+  const i = all.findIndex(d => fingerprintOf(d) === fp && fp.split('|')[1]);   // require non-empty champ list
+  if (i >= 0) {
+    if (entryRichness(entry) > entryRichness(all[i])) {
+      all[i] = entry; fs.writeFileSync(DRAFTS_FILE, JSON.stringify(all, null, 2));
+      console.log(`↻ enriched draft (${entry.mode}, ${entry.gameId}) — replaced a thinner duplicate`);
+    }
+    return;   // don't add a duplicate row
+  }
   all.unshift(entry);
   if (all.length > 200) all.length = 200;
   fs.writeFileSync(DRAFTS_FILE, JSON.stringify(all, null, 2));

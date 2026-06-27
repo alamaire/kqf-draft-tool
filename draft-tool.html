@@ -2307,7 +2307,8 @@ function renderPicksBansTab(el) {
 // (kqf_roster_stats, keyed by mode→player) by the Cowork browser-read — shown as "—" until set.
 function rosterStatsOverride() { try { return JSON.parse(localStorage.getItem('kqf_roster_stats')) || {} } catch { return {} } }
 let _coworkStats = null   // { flex:{nameKey:{...}}, ranked5:{...}, updated } from /api/roster-stats (Cowork)
-const STAT_COLS = [['kda', 'KDA'], ['avgK', 'Avg&nbsp;K'], ['avgD', 'Avg&nbsp;D'], ['avgA', 'Avg&nbsp;A'], ['csm', 'CS/M'], ['gpm', 'GPM'], ['kp', 'KP%'], ['dmg', 'DMG%'], ['vspm', 'VSPM']]
+// Reliable from op.gg collapsed cards first (kda/avgK/D/A/kp/csm); gpm+dmg need match expansion → fill later.
+const STAT_COLS = [['kda', 'KDA'], ['avgK', 'Avg&nbsp;K'], ['avgD', 'Avg&nbsp;D'], ['avgA', 'Avg&nbsp;A'], ['kp', 'KP%'], ['csm', 'CS/M'], ['gpm', 'GPM'], ['dmg', 'DMG%']]
 function renderStatsTab(el) {
   el.style.display = 'block'
   const mode = mainTab === 'ranked5' ? 'ranked5' : 'flex', modeLbl = mode === 'ranked5' ? "Ranked 5's" : 'Flex'
@@ -3198,17 +3199,23 @@ function ingestGames() {
   let changed = false
   // Games come ONLY from live captures (the draft auto-saves when the game completes). No client
   // history pull — it's a running update as games are played; op.gg is used to verify/fill stats.
+  // Fingerprint = sorted our-champ-ids + day; collapses the same match arriving under a real Riot
+  // gameId (live capture) and a synthetic id (Cowork op.gg backfill) into one store row.
+  const fpOf = (picks, date) => Object.values(picks || {}).filter(Boolean).map(String).sort().join(',') + '|' + String(date || '').slice(0, 10)
   for (const mode of ['flex', 'ranked5']) {
     const wantQ = mode === 'ranked5' ? 710 : 440   // 710 = Ranked 5's/scrims (op.gg "Featured"); 2400 is ARAM Mayhem
+    const seenFp = new Set(Object.values(s[mode]).map(g => fpOf(g.picks, g.date)))
     for (const d of historyLoad()) {
       const k = numId(d.gameId)
       if (d.queueId !== wantQ || !k || s[mode][k]) continue
       if (d.result !== 'win' && d.result !== 'loss') continue
       const g = captureToGame(d)
+      const fp = fpOf(g.picks, d.date)
+      if (fp.split('|')[0] && seenFp.has(fp)) continue   // same match already in the store (other id)
       const es = d.ourSide === 'blue' ? 'red' : 'blue'
       const enemy = ((d[es] && d[es].picks) || []).map(n => NAME_ID[n]).filter(Boolean)
       s[mode][k] = { win: d.result === 'win', date: d.date, picks: g.picks, bans: (g.bans && g.bans.our) || [], enemy }
-      changed = true
+      seenFp.add(fp); changed = true
     }
   }
   if (changed) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(s)) } catch {} }

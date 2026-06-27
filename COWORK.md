@@ -54,7 +54,9 @@ games with `gameId`, `queueId` **440=Flex / 710=Ranked 5's** (op.gg "Featured", 
 - Compute Flex and Ranked 5's **separately** and POST each as its own call (`"mode":"flex"` and
   `"mode":"ranked5"`). The tool shows them on the matching main tab — never mixed.
 - Cross-reference `/api/live-drafts` for the gameIds/dates of games we've recorded.
-- Send numbers only (no `%`/units). Omit any field op.gg doesn't show (e.g. VSPM isn't exposed).
+- Send numbers only (no `%`/units). **Send now (reliable from collapsed cards):** `kda, avgK, avgD,
+  avgA, kp, csm`. **Optional/later (need match expansion — skip for the first push):** `gpm, dmg`.
+  Don't send `vspm` (not exposed). Missing fields just show "—" and can be filled in a later push.
 
 ```
 POST http://localhost:5500/api/set-roster-stats
@@ -75,6 +77,15 @@ shows; missing ones display as "—". POST again anytime to update (it merges by
 ## 2) Backfill a missing game → POST /api/add-game
 For Ranked 5's games Riot stripped locally (or any full-roster game missing from the tracker), read
 the op.gg match page and send the full draft. `ourSide` = the side our roster was on.
+
+**gameId:** op.gg (Next app-router) doesn't expose the real Riot matchId, so send a **deterministic
+synthetic id** like `"gameId": "opgg-2026-06-27-ahri_jinx_ornn_sivir_thresh"` (date + sorted our
+champs). The companion dedupes by a **fingerprint** (mode + our sorted champs + day), so your backfill
+won't double a live capture of the same game — and if both exist, the live one (real id + bans) wins.
+Re-sending the same synthetic id is safe.
+
+**Include both teams' picks + bans** (expand the match for the full draft) — Enemy Champions and Picks
+& Bans need the enemy champs + our bans. If a match won't expand, send at least both teams' picks.
 
 ```
 POST http://localhost:5500/api/add-game
