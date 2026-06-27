@@ -307,6 +307,11 @@ async function watchTick() {
       if (cs && cs !== '404') {
         const queueId = (sess.gameData && sess.gameData.queue && sess.gameData.queue.id) || null;
         watch.pending = { gameId: null, queueId, date: new Date().toISOString(), ...snapshotDraft(cs) };
+        // Diagnostic dump (local only, gitignored): the raw ban/action structure of the live
+        // session, so we can pin where Ranked 5's stores bans. Keeps the latest tick per queue.
+        try { fs.writeFileSync(path.join(ROOT, 'champ-select-dump.json'),
+          JSON.stringify({ queueId, topKeys: Object.keys(cs), bans: cs.bans, actions: cs.actions, timer: cs.timer,
+            myTeam: (cs.myTeam || []).map(c => ({ cellId: c.cellId, championId: c.championId, championPickIntentId: c.championPickIntentId, banIntentId: c.banIntentId, team: c.team, assignedPosition: c.assignedPosition })) }, null, 2)); } catch {}
       }
     } else if ((phase === 'GameStart' || phase === 'InProgress') && watch.pending) {
       if (!watch.pending.gameId && sess.gameData && sess.gameData.gameId) watch.pending.gameId = sess.gameData.gameId;

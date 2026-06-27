@@ -3,3 +3,4 @@ node_modules/
 *.log
 
 live-drafts.json
+champ-select-dump.json
