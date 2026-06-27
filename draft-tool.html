@@ -2235,8 +2235,8 @@ function renderTracker(el) {
   </div>`
 }
 
-// ── Enemy Champions tab — running W/L vs each enemy champion we've faced (full-roster games
-// with draft data; enemy picks come from live captures). Forever-counting per mode.
+// ── Enemy Champions tab — running W/L vs each enemy champion we've faced, GROUPED BY ROLE (by the
+// champ's primary role). Full-roster games with draft data; enemy picks from captures. Per mode.
 function renderEnemyTab(el) {
   const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
@@ -2246,16 +2246,23 @@ function renderEnemyTab(el) {
     gamesWithData++
     for (const cid of g.enemy) { const r = rec[cid] = rec[cid] || { w: 0, l: 0 }; g.win ? r.w++ : r.l++ }
   }
-  const list = Object.entries(rec).map(([cid, r]) => ({ cid: +cid, w: r.w, l: r.l, n: r.w + r.l, wr: (r.w + r.l) ? Math.round(r.w / (r.w + r.l) * 100) : 0 }))
-    .sort((a, b) => b.n - a.n || a.wr - b.wr)
-  const cells = list.map(e => {
+  const all = Object.entries(rec).map(([cid, r]) => ({ cid: +cid, w: r.w, l: r.l, n: r.w + r.l, wr: (r.w + r.l) ? Math.round(r.w / (r.w + r.l) * 100) : 0 }))
+  const byRole = { top: [], jungle: [], mid: [], adc: [], support: [], other: [] }
+  for (const e of all) { const role = primaryRole(e.cid); (byRole[role] || byRole.other).push(e) }
+  const cell = e => {
     const c = CHAMPS[e.cid]; if (!c) return ''
     return `<div class="ec-cell" title="${c.name}: ${e.w}W ${e.l}L (${e.wr}%)"><img src="${c.img}" alt="${c.name}"/><div class="ec-rec ${e.wr >= 50 ? 'good' : 'bad'}">${e.w}-${e.l}</div></div>`
-  }).join('')
+  }
+  const row = (lbl, arr) => {
+    if (!arr.length) return ''
+    arr.sort((a, b) => b.n - a.n || a.wr - b.wr)
+    return `<div class="pb-row"><div class="pb-lbl">${lbl}</div><div class="pb-cells">${arr.map(cell).join('')}</div></div>`
+  }
   el.style.display = 'block'
   el.innerHTML = `<div class="ec-wrap">
-    <div class="ec-title">⚔ Enemy Champions · ${modeLbl} <span class="ec-sub">W/L when faced · ${gamesWithData} game${gamesWithData !== 1 ? 's' : ''} with draft data</span></div>
-    ${list.length ? `<div class="ec-grid">${cells}</div>` : `<div class="empty-msg">No enemy draft data yet for ${modeLbl}. Enemy champions are recorded from games captured live.</div>`}
+    <div class="ec-title">⚔ Enemy Champions · ${modeLbl} <span class="ec-sub">W/L when faced · by role · ${gamesWithData} game${gamesWithData !== 1 ? 's' : ''} with draft data</span></div>
+    ${all.length ? [['TOP', 'top'], ['JUNGLE', 'jungle'], ['MID', 'mid'], ['BOT', 'adc'], ['SUPPORT', 'support']].map(([l, r]) => row(l, byRole[r])).join('') + row('OTHER', byRole.other)
+      : `<div class="empty-msg">No enemy draft data yet for ${modeLbl}. Enemy champions are recorded from games captured live.</div>`}
   </div>`
 }
 // ── Picks & Bans tab — our pick counts (per role) + ban counts for this mode. Forever-counting.
