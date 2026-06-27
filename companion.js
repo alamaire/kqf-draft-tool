@@ -66,6 +66,18 @@ async function lcuGet(a, p) {
   return r.ok ? r.json() : (r.status === 404 ? '404' : null);
 }
 // Parse a champ-select session into the tool's draft shape.
+// Bans read from the champ-select ACTION log — the reliable live source. session.bans.*
+// is flaky (often empty during tournament-draft ban phases), so we key off the ban actions
+// (championId set = hovered or locked) and split them by the actor's cell into our/their.
+function bansFromActions(s, myCells) {
+  const mine = new Set(myCells), our = [], their = [];
+  for (const phase of (s.actions || [])) for (const act of (phase || [])) {
+    if (act.type !== 'ban' || !act.championId) continue;
+    (mine.has(act.actorCellId) ? our : their).push(act.championId);
+  }
+  return { our, their };
+}
+const mergeBans = (a, b) => [...new Set([...(a || []), ...(b || [])].filter(Boolean))];
 function parseSession(s) {
   const myCells = (s.myTeam || []).map(c => c.cellId);
   const weAreBlue = myCells.length ? myCells.every(c => c < 5) : true;
@@ -76,9 +88,10 @@ function parseSession(s) {
     name: c.gameName || c.summonerName || '',     // enemy names are usually hidden (empty) in ranked
     tag: c.tagLine || '',                          // tagline for op.gg scouting (when visible)
   })).filter(p => p.championId || p.role);
+  const ab = bansFromActions(s, myCells);
   const teams = {};
-  teams[ourSide] = { picks: teamPicks(s.myTeam), bans: (s.bans && s.bans.myTeamBans || []).filter(Boolean) };
-  teams[theirSide] = { picks: teamPicks(s.theirTeam), bans: (s.bans && s.bans.theirTeamBans || []).filter(Boolean) };
+  teams[ourSide] = { picks: teamPicks(s.myTeam), bans: mergeBans(s.bans && s.bans.myTeamBans, ab.our) };
+  teams[theirSide] = { picks: teamPicks(s.theirTeam), bans: mergeBans(s.bans && s.bans.theirTeamBans, ab.their) };
   const me = (s.myTeam || []).find(c => c.cellId === s.localPlayerCellId);
   return { active: true, ourSide, myRole: me ? (POS2ROLE[me.assignedPosition] || null) : null, teams,
     phase: (s.timer && s.timer.phase) || '' };
@@ -165,9 +178,11 @@ function snapshotDraft(s) {
   // still counts.) If 1+ random, we won't save it to the learning history.
   const allies = (s.myTeam || []).map(c => (c.gameName || c.summonerName || '').toLowerCase()).filter(Boolean);
   const fullRoster = (s.myTeam || []).length >= 5 && allies.filter(n => ROSTER_NAMES.has(n)).length >= 5;
-  const banList = (arr) => (arr || []).filter(Boolean).map(nm);
-  side[ourSide].bans = banList(s.bans && s.bans.myTeamBans);
-  side[ourSide === 'blue' ? 'red' : 'blue'].bans = banList(s.bans && s.bans.theirTeamBans);
+  // Bans from the action log (reliable) merged with session.bans.* — mapped to champ names.
+  const ab = bansFromActions(s, (s.myTeam || []).map(c => c.cellId));
+  const banList = (arr) => mergeBans(arr, []).map(nm).filter(Boolean);
+  side[ourSide].bans = banList(mergeBans(s.bans && s.bans.myTeamBans, ab.our));
+  side[ourSide === 'blue' ? 'red' : 'blue'].bans = banList(mergeBans(s.bans && s.bans.theirTeamBans, ab.their));
   // Pick/ban order from the action log.
   const sequence = [];
   for (const phase of (s.actions || [])) for (const act of phase) {
