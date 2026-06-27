@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-24.2'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.rec'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -1707,32 +1707,9 @@ function teamRecord() {
   const r = b && b.record ? b.record : { games: 0, wins: 0 }
   return { games: r.games, wins: r.wins, losses: r.games - r.wins, wr: r.games ? Math.round(r.wins / r.games * 100) : 0 }
 }
-// RUNNING (all-time) record per mode — NEVER resets. Accumulates every distinct full-roster
-// game (deduped by gameId across both the Riot pull and our live captures) into localStorage,
-// so it only grows — unaffected by the Riot pull's sliding window or a data refresh.
-const RUNREC_KEY = 'kqf_running_record_v2'   // v2: rebuilt after mode detection fixed (Flex/Ranked5 only)
-function loadRunRec() { try { return JSON.parse(localStorage.getItem(RUNREC_KEY)) || {} } catch { return {} } }
-function updateRunningRecord() {
-  const rec = loadRunRec()
-  for (const mode of ['flex', 'ranked5']) {
-    const m = rec[mode] = rec[mode] || { wins: 0, losses: 0, ids: {} }
-    const rb = window.ROSTER_DATA && window.ROSTER_DATA[mode]
-    for (const g of ((rb && rb.games) || [])) {                     // Riot full-roster games
-      if (g.id != null && !(g.id in m.ids)) { m.ids[g.id] = !!g.win; g.win ? m.wins++ : m.losses++ }
-    }
-    for (const d of historyLoad()) {                                // live-captured games
-      if ((d.mode || 'flex') !== mode || (d.result !== 'win' && d.result !== 'loss')) continue
-      if (d.gameId != null && !(d.gameId in m.ids)) { m.ids[d.gameId] = d.result === 'win'; d.result === 'win' ? m.wins++ : m.losses++ }
-    }
-  }
-  try { localStorage.setItem(RUNREC_KEY, JSON.stringify(rec)) } catch {}
-  return rec
-}
-function runningRecord(mode) {
-  const r = loadRunRec()[mode] || { wins: 0, losses: 0 }
-  const games = r.wins + r.losses
-  return { wins: r.wins, losses: r.losses, games, wr: games ? Math.round(r.wins / games * 100) : 0 }
-}
+// (Removed the old updateRunningRecord/kqf_running_record_v2 accumulator — the all-time record now
+// comes straight from the persistent game store via modeGames(), so it always reflects the full
+// captured + backfilled history with no separate stale cache. Clearing kqf_running_record_v2 is safe.)
 // Custom players the user added (persisted in this browser). Merged with KQF_ROSTER.
 function customPlayers() { try { return JSON.parse(localStorage.getItem('kqf_custom_players') || '[]') } catch { return [] } }
 // Persist the LINEUP (who's active + each player's role) so the roster reloads exactly
@@ -3198,7 +3175,7 @@ function historyReplace(arr) {
 // 40-game window, and only admits validated Flex(440)/Ranked5(710) full-roster games, so stale
 // or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
 // cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
-const GAMES_KEY = 'kqf_games_v2'   // v2: fresh start — tracking begins from live captures only
+const GAMES_KEY = 'kqf_games_v3'   // v3: clean rebuild from the full captured+backfilled history (drops any stale store)
 const numId = id => String(id == null ? '' : id).replace(/^.*_/, '')
 function ingestGames() {
   let s; try { s = JSON.parse(localStorage.getItem(GAMES_KEY)) } catch {}
