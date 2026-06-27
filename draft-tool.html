@@ -1513,8 +1513,8 @@ function setLiveStatus(txt, cls) {
   el.className = cls || ''; el.textContent = txt
 }
 function applyLiveDraft(s) {
-  if (!s.active) return
-  if (mainTab === 'solo') switchMainTab('flex')        // a live draft is a team draft
+  if (!s.active || !s.mode) return                      // only sync Flex / Ranked 5's
+  if (s.mode !== mainTab) switchMainTab(s.mode)         // follow the live game's mode (sets the right draft order)
   if (s.ourSide && s.ourSide !== mySide) { mySide = s.ourSide; syncSideButtons() }
   for (const side of ['blue', 'red']) {
     DS[side].picks = [null, null, null, null, null]
@@ -1549,9 +1549,12 @@ async function pollLive() {
     const r = await fetch('/api/lcu', { cache: 'no-store' }); if (!r.ok) throw 0
     const s = await r.json()
     const phase = s.gamePhase || ''
-    if (s.active) {
+    if (s.active && s.mode) {                            // a Flex / Ranked 5's champ select
       if (!_liveInChamp) { _liveInChamp = true; resetScout() }   // a NEW champ select → drop last game's scout intel
-      applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.phase || 'champ select'), 'armed'); scoutFromLive(s)
+      applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.mode === 'ranked5' ? "Ranked 5's" : 'Flex') + ' · ' + (s.phase || 'champ select'), 'armed'); scoutFromLive(s)
+    } else if (s.active && !s.mode) {                     // champ select for a mode we don't track (normals/bots/etc.)
+      _liveInChamp = false
+      setLiveStatus('live ready · ' + (s.queueId ? 'queue ' + s.queueId : 'other mode') + ' — not tracked', 'on')
     } else {
       _liveInChamp = false
       if (IN_GAME_PHASES.includes(_lastGamePhase) && !IN_GAME_PHASES.includes(phase)) readyForNextDraft()
@@ -1646,7 +1649,7 @@ function teamRecord() {
 // RUNNING (all-time) record per mode — NEVER resets. Accumulates every distinct full-roster
 // game (deduped by gameId across both the Riot pull and our live captures) into localStorage,
 // so it only grows — unaffected by the Riot pull's sliding window or a data refresh.
-const RUNREC_KEY = 'kqf_running_record_v1'
+const RUNREC_KEY = 'kqf_running_record_v2'   // v2: rebuilt after mode detection fixed (Flex/Ranked5 only)
 function loadRunRec() { try { return JSON.parse(localStorage.getItem(RUNREC_KEY)) || {} } catch { return {} } }
 function updateRunningRecord() {
   const rec = loadRunRec()

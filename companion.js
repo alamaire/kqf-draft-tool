@@ -105,7 +105,9 @@ function parseSession(s) {
   teams[ourSide] = { picks: teamPicks(s.myTeam), bans: mergeBans(s.bans && s.bans.myTeamBans, ab.our) };
   teams[theirSide] = { picks: teamPicks(s.theirTeam), bans: mergeBans(s.bans && s.bans.theirTeamBans, ab.their) };
   const me = (s.myTeam || []).find(c => c.cellId === s.localPlayerCellId);
+  const queueId = s.queueId || null;
   return { active: true, ourSide, myRole: me ? (POS2ROLE[me.assignedPosition] || null) : null, teams,
+    queueId, mode: resolveMode(queueId),   // 'flex' | 'ranked5' | null (null = a mode we don't track)
     phase: (s.timer && s.timer.phase) || '',
     // Diagnostics for verifying side/ban detection on a live draft (visible via /api/lcu).
     _debug: { ourSide, localCell: s.localPlayerCellId, myCells, theirCells: (s.theirTeam || []).map(c => c.cellId),
@@ -130,16 +132,11 @@ async function champSelect() {
 // — which the tool merges into its learning history. Pick order is only available
 // live (Riot's post-game API omits it), so this is the only way to capture it.
 const DRAFTS_FILE = path.join(ROOT, 'live-drafts.json');
-const QUEUE_MODE = { 420: 'solo', 440: 'flex', 2400: 'ranked5' };
-// Resolve a captured game's mode. Ranked 5's is a 5-stack tournament/custom draft whose
-// queueId may be custom/unknown — so ANY full-roster drafted game that isn't Flex/Solo is
-// treated as Ranked 5's. (Captures are full-roster-only, so this reliably tags them tonight
-// even before the exact queueId is known; the queueId is logged so it can be pinned later.)
-function resolveMode(queueId, fullRoster) {
-  if (queueId === 420) return 'solo';
-  if (queueId === 440) return 'flex';
-  return fullRoster ? 'ranked5' : 'other';
-}
+// We ONLY track two modes: Flex (queueId 440) and Ranked 5's (queueId 2400). Every other
+// queue — normals/draft, soloq, bots, customs, ARAM, Clash, etc. — returns null and is NOT
+// captured or synced. So off-night practice/normal games are ignored end-to-end.
+const QUEUE_MODE = { 440: 'flex', 2400: 'ranked5' };
+function resolveMode(queueId) { return QUEUE_MODE[queueId] || null; }
 // Roster account names (lowercased) — used to detect a FULL-roster game. Live drafting
 // always runs off MonkeyDAdam's client; teammates' names are visible in champ select.
 const ROSTER_NAMES = new Set(['thedrunkofrivia', 'teemoboy2011', 'styiebender', 'monkeydadam', 'yoitssam', 'lp fisherman']);
@@ -289,9 +286,16 @@ async function reconcileMatchHistory(a) {
       if (watch.pending && watch.pending.gameId === gid) continue;   // let the live capture (with pick order) win
       const pg = parseGame(g);
       if (!pg) continue;
-      if (!pg.fullRoster) { watch.savedIds.add(gid); continue; }     // not full roster — mark so we stop re-scanning it
-      const entry = { gameId: gid, date: pg.date, queueId: pg.queueId, mode: resolveMode(pg.queueId, true),
-        ourSide: pg.ourSide, blue: pg.blue, red: pg.red, result: pg.result, notes: 'Auto-saved from match history', live: false };
+      const rMode = resolveMode(pg.queueId);
+      // Ranked 5's is ALWAYS a full 5-stack, but Riot strips its match history to only our own
+      // player (no teammates/bans) → parseGame can't see a full roster. Still record it (result +
+      // our champ) so the record/history are accurate; full draft only comes from the live capture.
+      const isR5 = rMode === 'ranked5';
+      if (!rMode || (!pg.fullRoster && !isR5)) { watch.savedIds.add(gid); continue; }   // not Flex/Ranked5, or Flex w/ randoms
+      const partial = isR5 && !pg.fullRoster;
+      const entry = { gameId: gid, date: pg.date, queueId: pg.queueId, mode: rMode,
+        ourSide: pg.ourSide, blue: pg.blue, red: pg.red, result: pg.result, partial,
+        notes: partial ? 'Recovered from match history (Riot strips Ranked 5s draft — result only)' : 'Auto-saved from match history', live: false };
       drafts.unshift(entry); byId.set(gid, entry); watch.savedIds.add(gid); dirty = true; changed++;
       console.log(`✓ auto-saved completed game ${gid} (${entry.mode}, ${entry.result}) from match history`);
     }
@@ -323,9 +327,13 @@ async function watchTick() {
       // Game ended.
       const gid = watch.pending.gameId;
       if (gid && watch.savedIds.has(gid)) { watch.pending = null; watch.tries = 0; return; }
-      // Only SAVE full-roster games to the learning history (skip games with randoms) —
-      // the live draft/suggestions still ran, we just don't record this one.
-      if (!watch.pending.fullRoster) { console.log('skipped capture — not a full-roster game'); if (gid) watch.savedIds.add(gid); watch.pending = null; watch.tries = 0; return; }
+      // Only SAVE Flex/Ranked-5's full-roster games. Skip other modes (normals/bots/etc.) and
+      // games with randoms — the live draft still ran, we just don't record this one.
+      const wMode = resolveMode(watch.pending.queueId);
+      if (!wMode || !watch.pending.fullRoster) {
+        console.log(`skipped capture — ${!wMode ? 'queue ' + watch.pending.queueId + ' not tracked' : 'not a full-roster game'}`);
+        if (gid) watch.savedIds.add(gid); watch.pending = null; watch.tries = 0; return;
+      }
       // Pull the finished game from match history (retry a few ticks until it lands) — gives
       // W/L AND bans, which the live champ-select may not have exposed (e.g. Ranked 5's).
       const g = await fetchGame(a, gid);
@@ -339,10 +347,10 @@ async function watchTick() {
           if (!(p.blue.bans || []).length) p.blue.bans = pg.blue.bans;
           if (!(p.red.bans || []).length) p.red.bans = pg.red.bans;
         }
-        const entry = { gameId: gid || Date.now(), date: p.date, queueId: p.queueId, mode: resolveMode(p.queueId, p.fullRoster),
+        const entry = { gameId: gid || Date.now(), date: p.date, queueId: p.queueId, mode: wMode,
           ourSide: p.ourSide, sequence: p.sequence, blue: p.blue, red: p.red, result: result || null, notes: 'Auto-captured live', live: true };
         saveDraftEntry(entry); if (gid) watch.savedIds.add(gid);
-        console.log(`   queueId=${p.queueId} → mode=${entry.mode}`);   // so the Ranked 5's queueId can be identified on first play
+        console.log(`   queueId=${p.queueId} → mode=${entry.mode}`);
         watch.pending = null; watch.tries = 0;
       }
     }
