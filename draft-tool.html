@@ -2120,23 +2120,27 @@ function modeGames() {
 }
 function renderTracker(el) {
   updateRunningRecord()                 // keep the all-time (never-reset) record current
-  const tr = teamRecord()
   const all = runningRecord(mainTab)
-  const b = rosterBucket(true)
   const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const wrCls = w => w >= 50 ? 'good' : 'bad'
+  // Individual games — full-roster match history for THIS mode only: Riot pull PLUS our live
+  // captures (deduped by gameId). Per-player records are derived from exactly these games, so
+  // every roster member who played gets credited (Riot data AND live captures, this mode only).
+  const games = modeGames()
+  const pRec = {}
+  for (const g of games) for (const k in (g.picks || {})) {
+    const r = pRec[k] = pRec[k] || { games: 0, wins: 0 }; r.games++; if (g.win) r.wins++
+  }
   const cards = roster.map(p => {
-    const rec = playerRecord(p.name)
+    const r = pRec[p.name] || { games: 0, wins: 0 }
+    const losses = r.games - r.wins, wr = r.games ? Math.round(r.wins / r.games * 100) : 0
     return `<div class="track-card ${p.active ? '' : 'out'}">
       <div class="track-name" title="${p.display || p.name}">${p.display || p.name}</div>
       <div class="track-role">${ROLE_LABELS[p.role] || p.role}</div>
-      <div class="track-rec"><b>${rec.wins}-${rec.losses}</b> <span class="${wrCls(rec.wr)}">${rec.games ? rec.wr + '%' : '—'}</span></div>
-      <div class="track-sub">${rec.games} game${rec.games !== 1 ? 's' : ''}</div>
+      <div class="track-rec"><b>${r.wins}-${losses}</b> <span class="${wrCls(wr)}">${r.games ? wr + '%' : '—'}</span></div>
+      <div class="track-sub">${r.games} game${r.games !== 1 ? 's' : ''}</div>
     </div>`
   }).join('')
-  // Individual games — full-roster match history for this mode: Riot pull PLUS our live
-  // captures (deduped by gameId), so games show up even before a Riot re-pull (e.g. Ranked 5's).
-  const games = modeGames()
   const gamesHtml = games.slice(0, 10).map(g => {
     const champs = roster.filter(p => g.picks[p.name]).map(p => {
       const c = CHAMPS[g.picks[p.name]]
