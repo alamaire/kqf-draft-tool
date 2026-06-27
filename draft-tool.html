@@ -2303,26 +2303,34 @@ function renderPicksBansTab(el) {
 // don't capture from the client, so they're filled into an injectable override store
 // (kqf_roster_stats, keyed by mode→player) by the Cowork browser-read — shown as "—" until set.
 function rosterStatsOverride() { try { return JSON.parse(localStorage.getItem('kqf_roster_stats')) || {} } catch { return {} } }
+let _coworkStats = null   // { flex:{nameKey:{...}}, ranked5:{...}, updated } from /api/roster-stats (Cowork)
+const STAT_COLS = [['kda', 'KDA'], ['avgK', 'Avg&nbsp;K'], ['avgD', 'Avg&nbsp;D'], ['avgA', 'Avg&nbsp;A'], ['csm', 'CS/M'], ['gpm', 'GPM'], ['kp', 'KP%'], ['dmg', 'DMG%'], ['vspm', 'VSPM']]
 function renderStatsTab(el) {
   el.style.display = 'block'
   const mode = mainTab === 'ranked5' ? 'ranked5' : 'flex', modeLbl = mode === 'ranked5' ? "Ranked 5's" : 'Flex'
   const m = ingestGames()[mode] || {}
   const rec = {}
   for (const g of Object.values(m)) for (const k in (g.picks || {})) { const r = rec[k] = rec[k] || { g: 0, w: 0 }; r.g++; if (g.win) r.w++ }
-  const ov = rosterStatsOverride()[mode] || {}
+  const remote = (_coworkStats && _coworkStats[mode]) || {}, local = rosterStatsOverride()[mode] || {}
+  const statOf = k => Object.assign({}, remote[k] || {}, local[k] || {})   // local override wins over remote
   const wrCls = w => w >= 50 ? 'good' : 'bad'
-  const cell = v => v == null ? '<span class="st-pend">—</span>' : v
+  const c = v => (v == null || v === '') ? '<span class="st-pend">—</span>' : v
   const rows = roster.map(p => {
-    const r = rec[p.name] || { g: 0, w: 0 }, wr = r.g ? Math.round(r.w / r.g * 100) : 0, o = ov[p.name] || {}
-    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td><td>${r.g}</td><td class="${r.g ? wrCls(wr) : ''}">${r.g ? wr + '%' : '—'}</td><td>${cell(o.kda)}</td><td>${cell(o.avgK)}</td><td>${cell(o.avgD)}</td><td>${cell(o.avgA)}</td></tr>`
+    const r = rec[p.name] || { g: 0, w: 0 }, wr = r.g ? Math.round(r.w / r.g * 100) : 0, s = statOf(p.name)
+    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td><td>${r.g}</td><td class="${r.g ? wrCls(wr) : ''}">${r.g ? wr + '%' : '—'}</td>${STAT_COLS.map(([k]) => `<td>${c(s[k])}</td>`).join('')}</tr>`
   }).join('')
+  const upd = _coworkStats && _coworkStats.updated ? ' · op.gg ' + new Date(_coworkStats.updated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
   el.innerHTML = `<div class="st-wrap">
-    <div class="st-title">📈 Stats · ${modeLbl} <span class="ec-sub">our recorded games</span></div>
-    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th><th>KDA</th><th>Avg&nbsp;K</th><th>Avg&nbsp;D</th><th>Avg&nbsp;A</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="st-note">Games &amp; win rate are from our recorded ${modeLbl} full-roster games. KDA / Avg K-D-A get filled per game from OP.GG via the Cowork browser-read.</div>
+    <div class="st-title">📈 Stats · ${modeLbl} <span class="ec-sub">our recorded games${upd}</span></div>
+    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th>${STAT_COLS.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="st-note">Games &amp; win rate are from our recorded ${modeLbl} full-roster games. KDA / Avg K-D-A / CS-M / GPM / KP% / DMG% / VSPM are read from op.gg by Cowork (for our recorded games) and filled in automatically.</div>
   </div>`
+  if (_coworkStats == null && _companionPresent) {   // fetch Cowork stats once; refreshed on tab reopen
+    _coworkStats = {}
+    fetch('/api/roster-stats', { cache: 'no-store' }).then(r => r.json()).then(d => { _coworkStats = d || {}; if (poolView === 'stats') renderStatsTab(el) }).catch(() => {})
+  }
 }
-function refreshStatsErrors() { /* op.gg all-time pull removed — stats now come from recorded games */ }
+function refreshStatsErrors() { _coworkStats = null }   // re-pull Cowork stats when the Stats tab is reopened
 
 // ── Practice sandbox — isolated draft history (kqf_practice_drafts). NEVER auto-pulls, never
 // touches the store/stats/other pages. Save current board, look back, clear.

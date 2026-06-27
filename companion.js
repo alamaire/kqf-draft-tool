@@ -463,6 +463,46 @@ http.createServer(async (req, res) => {
     });
     return;
   }
+  // ── COWORK bridge ──────────────────────────────────────────────────────────
+  // A Claude-in-browser agent reads op.gg (which the API/scrape can't reliably give us) and
+  // POSTs accurate data here; the tool reads it back. roster-stats.json holds per-player stats.
+  const STATS_FILE = path.join(ROOT, 'roster-stats.json');
+  const loadStats = () => { try { return JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')) || {}; } catch { return {}; } };
+  if (url === '/api/roster-stats') return J(res, 200, loadStats());
+  if (req.method === 'POST' && url === '/api/set-roster-stats') {
+    let body = ''; req.on('data', c => { body += c; if (body.length > 200000) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const p = JSON.parse(body);
+        const mode = p.mode === 'ranked5' ? 'ranked5' : 'flex';
+        if (!p.stats || typeof p.stats !== 'object') throw 0;
+        const all = loadStats(); all[mode] = all[mode] || {};
+        for (const k in p.stats) all[mode][k.toLowerCase()] = p.stats[k];   // merge per player
+        all.updated = new Date().toISOString();
+        fs.writeFileSync(STATS_FILE, JSON.stringify(all, null, 2));
+        J(res, 200, { ok: true, mode, players: Object.keys(p.stats).length });
+      } catch { J(res, 400, { ok: false, error: 'bad payload' }); }
+    });
+    return;
+  }
+  // Cowork backfills a full game (e.g. a Ranked 5's match Riot stripped locally) into the captures.
+  if (req.method === 'POST' && url === '/api/add-game') {
+    let body = ''; req.on('data', c => { body += c; if (body.length > 100000) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const g = JSON.parse(body);
+        if (!g.gameId || !g.blue || !g.red) throw 0;
+        const entry = { gameId: g.gameId, date: g.date || new Date().toISOString(), queueId: g.queueId,
+          mode: resolveMode(g.queueId) || (g.mode === 'ranked5' ? 'ranked5' : 'flex'),
+          ourSide: g.ourSide || 'blue', blue: g.blue, red: g.red, result: g.result || null,
+          notes: 'Backfilled via Cowork (op.gg)', live: false };
+        const before = loadDrafts().length;
+        saveDraftEntry(entry);   // dedupes by gameId
+        J(res, 200, { ok: true, added: loadDrafts().length > before, mode: entry.mode });
+      } catch { J(res, 400, { ok: false, error: 'bad payload' }); }
+    });
+    return;
+  }
   // Auto-captured live drafts (full pick/ban order + result) for the tool to merge.
   if (url === '/api/live-drafts') return J(res, 200, loadDrafts());
   let file = path.join(ROOT, url === '/' ? '/draft-tool.html' : url);
