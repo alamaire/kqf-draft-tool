@@ -326,8 +326,26 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .track-team-rec{font-size:16px;font-weight:800;color:var(--gold-l)}
 .track-team-wr{font-size:14px;font-weight:800}
 .track-team-n{font-size:10px;color:var(--gray-l);margin-left:auto}
-.track-reset{font-size:10px;color:var(--gray-l);margin-left:10px;cursor:pointer;border:1px solid var(--line);border-radius:4px;padding:1px 6px}
-.track-reset:hover{color:var(--red);border-color:var(--red)}
+/* Enemy Champions / Picks & Bans / Stats tabs */
+.ec-wrap,.pb-wrap,.st-wrap{width:100%}
+.ec-title,.pb-title,.st-title{font-size:12px;font-weight:700;color:var(--gold-l);margin:2px 0 8px;display:flex;align-items:center;gap:8px}
+.ec-sub{font-size:10px;font-weight:400;color:var(--gray-l)}
+.ec-grid{display:flex;flex-wrap:wrap;gap:6px}
+.ec-cell{width:44px;text-align:center}
+.ec-cell img{width:40px;height:40px;border-radius:6px;border:1px solid var(--line)}
+.ec-rec{font-size:10px;font-weight:700;margin-top:1px}
+.pb-row{display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+.pb-lbl{width:64px;flex:none;font-size:10px;font-weight:700;color:var(--gray-l);text-transform:uppercase;padding-top:6px}
+.pb-cells{display:flex;flex-wrap:wrap;gap:4px}
+.pb-cell{width:34px;text-align:center}
+.pb-cell img{width:32px;height:32px;border-radius:5px;border:1px solid var(--line)}
+.pb-n{font-size:10px;font-weight:700;color:var(--txt)}
+.st-table{width:100%;border-collapse:collapse;font-size:11px}
+.st-table th{text-align:center;color:var(--gray-l);font-weight:600;font-size:10px;padding:4px 6px;border-bottom:1px solid var(--line)}
+.st-table td{text-align:center;padding:4px 6px;border-bottom:1px solid var(--line)}
+.st-table td.st-pl{text-align:left;font-weight:700;color:var(--gold-l)}
+.st-pend{color:var(--gray-d);font-style:italic}
+.st-note{font-size:10px;color:var(--gray-l);margin-top:8px;line-height:1.5}
 .track-cards{display:flex;gap:6px;flex-wrap:wrap}
 .track-card{flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--gold-d);border-radius:5px;background:var(--dark2)}
 .track-card.out{opacity:.45}
@@ -413,9 +431,12 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
   </div>
   <div class="side-select" id="pool-view-select">
     <span class="roster-label">View</span>
-    <button class="pv-btn active" id="pv-opgg" onclick="setPoolView('opgg')">OP.GG</button>
-    <button class="pv-btn" id="pv-draft" onclick="setPoolView('drafttool')" title="Champions the roster has drafted in saved games">Draft Tool</button>
-    <button class="pv-btn" id="pv-tracker" onclick="setPoolView('tracker')" title="Games played & win rates from saved roster games">Tracker</button>
+    <button class="pv-btn active" id="pv-opgg" onclick="setPoolView('opgg')" title="OP.GG win rates across all ranked modes">OP.GG</button>
+    <button class="pv-btn" id="pv-draft" onclick="setPoolView('drafttool')" title="Champions each player has played in full-roster games for this mode">Flex</button>
+    <button class="pv-btn" id="pv-tracker" onclick="setPoolView('tracker')" title="Team & per-player records + match history for this mode">Tracker</button>
+    <button class="pv-btn" id="pv-enemy" onclick="setPoolView('enemy')" title="Running win/loss vs each enemy champion we've faced">Enemy Champs</button>
+    <button class="pv-btn" id="pv-picksbans" onclick="setPoolView('picksbans')" title="Our pick & ban counts, per role, for this mode">Picks & Bans</button>
+    <button class="pv-btn" id="pv-stats" onclick="setPoolView('stats')" title="Per-player stats (from OP.GG)">Stats</button>
   </div>
   <span class="roster-label">Roster</span>
   <div id="roster-cards"></div>
@@ -1419,8 +1440,9 @@ function displayPool(p) {
   // Draft Tool view = the roster's REAL full-stack match history for the current
   // mode (Flex vs Ranked 5's), from Riot. Strictly mode-specific (empty if none yet).
   if (poolView === 'drafttool') {
-    const b = rosterBucket(true)
-    return filterExcluded(p.name, (b && b.pools && b.pools[p.name]) || [])
+    // Champions each player has actually played in FULL-ROSTER games for this mode (Riot + live
+    // captures), from the persistent store. Strictly mode-specific.
+    return filterExcluded(p.name, storePool(p.name))
   }
   // op.gg pool + champs LEARNED from our captured games (picked champs added to their pool).
   return mergePool(p.pool, capturedPoolList(p.display || p.name), p.name)
@@ -1434,12 +1456,17 @@ function mergePool(base, learned, nameKey) {
 }
 function setPoolView(v) {
   poolView = v
-  document.getElementById('pv-opgg').classList.toggle('active', v === 'opgg')
-  document.getElementById('pv-draft').classList.toggle('active', v === 'drafttool')
-  document.getElementById('pv-tracker').classList.toggle('active', v === 'tracker')
+  const tabs = { 'pv-opgg': 'opgg', 'pv-draft': 'drafttool', 'pv-tracker': 'tracker', 'pv-enemy': 'enemy', 'pv-picksbans': 'picksbans', 'pv-stats': 'stats' }
+  for (const id in tabs) { const el = document.getElementById(id); if (el) el.classList.toggle('active', tabs[id] === v) }
+  syncPoolTabLabels()
   renderRoster()
 }
 window.setPoolView = setPoolView
+// The Flex / Ranked 5's pool tab is labelled to match the current mode.
+function syncPoolTabLabels() {
+  const d = document.getElementById('pv-draft')
+  if (d) d.textContent = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
+}
 // ── Riot key refresh reminder ───────────────────────────────────────────────
 function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
@@ -1963,6 +1990,7 @@ function switchMainTab(tab) {
     history:[],
   })
   applyRosterToTeam()
+  if (typeof syncPoolTabLabels === 'function') syncPoolTabLabels()   // Flex/Ranked 5's pool tab label
   render()
   // History button: Flex + Ranked 5's (both save drafts), hidden in Solo
   const histBtn = document.getElementById('history-btn')
@@ -2012,6 +2040,9 @@ function renderRoster() {
 
   // TRACKER view — games played & win rates from our saved roster games.
   if (poolView === 'tracker') { renderTracker(el); return }
+  if (poolView === 'enemy') { renderEnemyTab(el); return }
+  if (poolView === 'picksbans') { renderPicksBansTab(el); return }
+  if (poolView === 'stats') { renderStatsTab(el); return }
 
   // Display in fixed role order (top→jungle→mid→adc→support); active players first, benched
   // after. Keep each card's ORIGINAL roster index for the click handlers.
@@ -2189,12 +2220,78 @@ function renderTracker(el) {
       <span class="track-team-rec">${all.wins}-${all.losses}</span>
       <span class="track-team-wr ${wrCls(all.wr)}">${all.games ? all.wr + '%' : '—'}</span>
       <span class="track-team-n">${all.games} game${all.games !== 1 ? 's' : ''} · counts forever</span>
-      <span class="track-reset" title="Reset all tracker stats to 0" onclick="resetStats()">↺ reset</span>
     </div>
     <div class="track-cards">${cards}</div>
     ${analysis}
     ${games.length ? `<div class="rg-list-lbl">Match history · last ${Math.min(10, games.length)}</div><div class="rg-list">${gamesHtml}</div>` : ''}
     ${all.games ? '' : `<div class="empty-msg">No full-roster ${modeLbl} games yet. Play a full 5-stack with the companion running — it auto-captures live.</div>`}
+  </div>`
+}
+
+// ── Enemy Champions tab — running W/L vs each enemy champion we've faced (full-roster games
+// with draft data; enemy picks come from live captures). Forever-counting per mode.
+function renderEnemyTab(el) {
+  const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
+  const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
+  const rec = {}; let gamesWithData = 0
+  for (const g of Object.values(m)) {
+    if (!(g.enemy && g.enemy.length)) continue
+    gamesWithData++
+    for (const cid of g.enemy) { const r = rec[cid] = rec[cid] || { w: 0, l: 0 }; g.win ? r.w++ : r.l++ }
+  }
+  const list = Object.entries(rec).map(([cid, r]) => ({ cid: +cid, w: r.w, l: r.l, n: r.w + r.l, wr: (r.w + r.l) ? Math.round(r.w / (r.w + r.l) * 100) : 0 }))
+    .sort((a, b) => b.n - a.n || a.wr - b.wr)
+  const cells = list.map(e => {
+    const c = CHAMPS[e.cid]; if (!c) return ''
+    return `<div class="ec-cell" title="${c.name}: ${e.w}W ${e.l}L (${e.wr}%)"><img src="${c.img}" alt="${c.name}"/><div class="ec-rec ${e.wr >= 50 ? 'good' : 'bad'}">${e.w}-${e.l}</div></div>`
+  }).join('')
+  el.style.display = 'block'
+  el.innerHTML = `<div class="ec-wrap">
+    <div class="ec-title">⚔ Enemy Champions · ${modeLbl} <span class="ec-sub">W/L when faced · ${gamesWithData} game${gamesWithData !== 1 ? 's' : ''} with draft data</span></div>
+    ${list.length ? `<div class="ec-grid">${cells}</div>` : `<div class="empty-msg">No enemy draft data yet for ${modeLbl}. Enemy champions are recorded from games captured live.</div>`}
+  </div>`
+}
+// ── Picks & Bans tab — our pick counts (per role) + ban counts for this mode. Forever-counting.
+function renderPicksBansTab(el) {
+  const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
+  const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
+  const roleOf = {}; for (const p of roster) roleOf[p.name] = p.role
+  const banCount = {}, pickByRole = { top: {}, jungle: {}, mid: {}, adc: {}, support: {}, other: {} }
+  let games = 0
+  for (const g of Object.values(m)) {
+    games++
+    for (const cid of (g.bans || [])) banCount[cid] = (banCount[cid] || 0) + 1
+    for (const k in (g.picks || {})) { const cid = g.picks[k], role = pickByRole[roleOf[k]] ? roleOf[k] : 'other'; pickByRole[role][cid] = (pickByRole[role][cid] || 0) + 1 }
+  }
+  const row = (label, counts) => {
+    const list = Object.entries(counts).map(([cid, n]) => ({ cid: +cid, n })).sort((a, b) => b.n - a.n)
+    if (!list.length) return ''
+    const imgs = list.map(e => { const c = CHAMPS[e.cid]; return c ? `<div class="pb-cell"><img src="${c.img}" title="${c.name}: ${e.n}" alt=""/><div class="pb-n">${e.n}</div></div>` : '' }).join('')
+    return `<div class="pb-row"><div class="pb-lbl">${label}</div><div class="pb-cells">${imgs}</div></div>`
+  }
+  el.style.display = 'block'
+  el.innerHTML = `<div class="pb-wrap">
+    <div class="pb-title">📋 Picks & Bans · ${modeLbl} <span class="ec-sub">${games} game${games !== 1 ? 's' : ''}</span></div>
+    ${games ? row('BANS', banCount) + ['top', 'jungle', 'mid', 'adc', 'support'].map(r => row(ROLE_LABELS[r] || r, pickByRole[r])).join('') + row('Other', pickByRole.other)
+      : `<div class="empty-msg">No ${modeLbl} games yet. Our picks & bans are recorded as you play.</div>`}
+  </div>`
+}
+// ── Stats tab — per-player stats. Games/Win-rate from our captured games now; the detailed
+// columns (KDA, CS/M, GPM, KP%, DMG%, VSPM) pull from OP.GG (next phase).
+function renderStatsTab(el) {
+  const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
+  const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
+  const rec = {}
+  for (const g of Object.values(m)) for (const k in (g.picks || {})) { const r = rec[k] = rec[k] || { g: 0, w: 0 }; r.g++; if (g.win) r.w++ }
+  const rows = roster.map(p => {
+    const r = rec[p.name] || { g: 0, w: 0 }, wr = r.g ? Math.round(r.w / r.g * 100) : 0
+    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td><td>${r.g}</td><td class="${wr >= 50 ? 'good' : 'bad'}">${r.g ? wr + '%' : '—'}</td><td class="st-pend" colspan="6">— OP.GG —</td></tr>`
+  }).join('')
+  el.style.display = 'block'
+  el.innerHTML = `<div class="st-wrap">
+    <div class="st-title">📈 Stats · ${modeLbl}</div>
+    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th><th>KDA</th><th>CS/M</th><th>GPM</th><th>KP%</th><th>DMG%</th><th>VSPM</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="st-note">Games &amp; win rate are from our captured full-roster ${modeLbl} games. KDA / CS/M / GPM / KP% / DMG% / VSPM pull from OP.GG (featured = Ranked 5's, ranked flex = Flex) — wiring that up next.</div>
   </div>`
 }
 
@@ -3019,25 +3116,23 @@ function historyReplace(arr) {
 // 40-game window, and only admits validated Flex(440)/Ranked5(2400) full-roster games, so stale
 // or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
 // cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
-const GAMES_KEY = 'kqf_games_v1', RESET_KEY = 'kqf_stats_reset_at'
+const GAMES_KEY = 'kqf_games_v1'
 const numId = id => String(id == null ? '' : id).replace(/^.*_/, '')
-function statsResetAt() { return +localStorage.getItem(RESET_KEY) || 0 }
 function ingestGames() {
   let s; try { s = JSON.parse(localStorage.getItem(GAMES_KEY)) } catch {}
   s = s || {}; s.flex = s.flex || {}; s.ranked5 = s.ranked5 || {}
-  const cutoff = statsResetAt(); let changed = false
-  const after = d => !cutoff || (new Date(d || 0).getTime() > cutoff)
+  let changed = false
   for (const mode of ['flex', 'ranked5']) {
     const wantQ = mode === 'ranked5' ? 2400 : 440
     const rb = window.ROSTER_DATA && window.ROSTER_DATA[mode]
     for (const g of ((rb && rb.games) || [])) {           // Riot pull: already full-roster + mode-bucketed
-      const k = numId(g.id); if (!k || s[mode][k] || !after(g.date)) continue
+      const k = numId(g.id); if (!k || s[mode][k]) continue
       s[mode][k] = { win: !!g.win, date: g.date, picks: g.picks || {}, bans: (g.bans && g.bans.our) || [], enemy: [] }
       changed = true
     }
     for (const d of historyLoad()) {                       // live captures: validate by queueId
       const k = numId(d.gameId)
-      if (d.queueId !== wantQ || !k || s[mode][k] || !after(d.date)) continue
+      if (d.queueId !== wantQ || !k || s[mode][k]) continue
       if (d.result !== 'win' && d.result !== 'loss') continue
       const g = captureToGame(d)
       const es = d.ourSide === 'blue' ? 'red' : 'blue'
@@ -3049,14 +3144,16 @@ function ingestGames() {
   if (changed) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(s)) } catch {} }
   return s
 }
-function resetStats() {
-  if (!confirm('Reset ALL tracker stats to 0? Games you play from now on will count fresh. (Saved drafts are kept.)')) return
-  localStorage.setItem(RESET_KEY, String(Date.now()))
-  try { localStorage.removeItem(GAMES_KEY) } catch {}
-  if (typeof renderRoster === 'function') renderRoster()
-  if (typeof render === 'function') render()
+// Per-player champ pool from the persistent store for the CURRENT mode (full-roster games only:
+// Riot pull + live captures). Powers the renamed Flex / Ranked 5's pool view.
+function storePool(nameKey) {
+  const s = ingestGames(), m = s[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}, by = {}
+  for (const g of Object.values(m)) {
+    const cid = g.picks && g.picks[nameKey]; if (cid == null) continue
+    const e = by[cid] = by[cid] || { championId: cid, games: 0, wins: 0 }; e.games++; if (g.win) e.wins++
+  }
+  return Object.values(by).map(e => ({ ...e, winRate: e.games ? Math.round(e.wins / e.games * 100) : 0 })).sort((a, b) => b.games - a.games)
 }
-window.resetStats = resetStats
 
 // ── Learning from our own match history ──────────────────────────────────────
 // Dissects every saved win/loss draft (from OUR side) into three records:
