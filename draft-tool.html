@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.rec'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.key'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -3175,8 +3175,11 @@ function historyReplace(arr) {
 // 40-game window, and only admits validated Flex(440)/Ranked5(710) full-roster games, so stale
 // or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
 // cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
-const GAMES_KEY = 'kqf_games_v3'   // v3: clean rebuild from the full captured+backfilled history (drops any stale store)
-const numId = id => String(id == null ? '' : id).replace(/^.*_/, '')
+const GAMES_KEY = 'kqf_games_v4'   // v4: fixed per-game keying (synthetic ids no longer collapse to one champ)
+// Normalize a gameId for use as a UNIQUE per-game store key. Strips ONLY a leading Riot platform
+// prefix (NA1_5585… → 5585…) so a real id and its bare-number form match. Leaves synthetic Cowork
+// ids whole (opgg-2026-06-27-kaisa_rell_… stays unique — earlier this wrongly became "xerath").
+const numId = id => String(id == null ? '' : id).replace(/^[A-Za-z]+\d+_/, '')
 function ingestGames() {
   let s; try { s = JSON.parse(localStorage.getItem(GAMES_KEY)) } catch {}
   s = s || {}; s.flex = s.flex || {}; s.ranked5 = s.ranked5 || {}
