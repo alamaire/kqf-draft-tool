@@ -350,6 +350,7 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .st-table td.st-pl{text-align:left;font-weight:700;color:var(--gold-l)}
 .st-pend{color:var(--gray-d);font-style:italic}
 .st-note{font-size:10px;color:var(--gray-l);margin-top:8px;line-height:1.5}
+#roster-cards.rc-full{width:100%;flex-basis:100%;max-height:none;overflow:visible}
 .track-cards{display:flex;gap:6px;flex-wrap:wrap}
 .track-card{flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--gold-d);border-radius:5px;background:var(--dark2)}
 .track-card.out{opacity:.45}
@@ -1444,12 +1445,13 @@ function displayPool(p) {
   // Draft Tool view = the roster's REAL full-stack match history for the current
   // mode (Flex vs Ranked 5's), from Riot. Strictly mode-specific (empty if none yet).
   if (poolView === 'drafttool') {
-    // Champions each player has actually played in FULL-ROSTER games for this mode (Riot + live
-    // captures), from the persistent store. Strictly mode-specific.
+    // Champions each player has actually played in FULL-ROSTER games for this mode (live captures),
+    // from the persistent store. Strictly mode-specific.
     return filterExcluded(p.name, storePool(p.name))
   }
-  // op.gg pool + champs LEARNED from our captured games (picked champs added to their pool).
-  return mergePool(p.pool, capturedPoolList(p.display || p.name), p.name)
+  // OP.GG view = PURE op.gg ranked pool, most-played first (top 10 shown). No captured merge,
+  // so the win rates are exactly op.gg's.
+  return filterExcluded(p.name, (p.pool || []).slice().sort((a, b) => (b.games - a.games) || (b.winRate - a.winRate)))
 }
 // Union an op.gg pool with champs learned from our games (adds picked champs not already shown).
 function mergePool(base, learned, nameKey) {
@@ -1464,9 +1466,19 @@ function setPoolView(v) {
   const tabs = { 'pv-opgg': 'opgg', 'pv-draft': 'drafttool', 'pv-tracker': 'tracker', 'pv-enemy': 'enemy', 'pv-picksbans': 'picksbans', 'pv-stats': 'stats' }
   for (const id in tabs) { const el = document.getElementById(id); if (el) el.classList.toggle('active', tabs[id] === v) }
   syncPoolTabLabels()
+  applyViewLayout()
   renderRoster()
 }
 window.setPoolView = setPoolView
+// Data views (Tracker/Enemy/Picks&Bans/Stats) cover the whole screen — the draft board only
+// matters on the OP.GG / Flex-Ranked5 pool views, so hide it for the data views.
+const DATA_VIEWS = ['tracker', 'enemy', 'picksbans', 'stats']
+function applyViewLayout() {
+  const main = document.querySelector('.main')
+  if (main) main.style.display = DATA_VIEWS.includes(poolView) ? 'none' : ''
+  const rc = document.getElementById('roster-cards')
+  if (rc) rc.classList.toggle('rc-full', DATA_VIEWS.includes(poolView))
+}
 // The Flex / Ranked 5's pool tab is labelled to match the current mode.
 function syncPoolTabLabels() {
   const d = document.getElementById('pv-draft')
@@ -1827,7 +1839,7 @@ async function autoLoadPools() {
 
 // ── OP.GG pool loading ────────────────────────────────────────────────────
 function poolCacheKey(name, tag) {
-  return `opgg_${name}_${tag}`.toLowerCase().replace(/\s+/g,'_')
+  return `opgg2_${name}_${tag}`.toLowerCase().replace(/\s+/g,'_')   // opgg2: bumped to drop stale/seed caches
 }
 function poolCacheLoad(name, tag) {
   try {
@@ -2271,38 +2283,31 @@ function renderPicksBansTab(el) {
     ${Object.keys(pickByRole.other).length ? roleRow('OTHER', pickByRole.other) : ''}
   </div>`
 }
-// ── Stats tab — per-player stats pulled LIVE from OP.GG (games, win rate, KDA, avg K/D/A). Only
-// the columns OP.GG actually exposes for a player are shown; CS/M, GPM, KP%, DMG%, VSPM live in
-// OP.GG's global meta (not the player's data), so they're omitted. OP.GG aggregates all ranked.
-let _statsData = {}   // nameKey -> {stats} | 'loading' | 'err'
+// ── Stats tab — per-player stats from OUR recorded full-roster games (this mode), NOT op.gg all-
+// time. Games + win rate come straight from our captures. KDA / Avg K-D-A are per-game numbers we
+// don't capture from the client, so they're filled into an injectable override store
+// (kqf_roster_stats, keyed by mode→player) by the Cowork browser-read — shown as "—" until set.
+function rosterStatsOverride() { try { return JSON.parse(localStorage.getItem('kqf_roster_stats')) || {} } catch { return {} } }
 function renderStatsTab(el) {
   el.style.display = 'block'
+  const mode = mainTab === 'ranked5' ? 'ranked5' : 'flex', modeLbl = mode === 'ranked5' ? "Ranked 5's" : 'Flex'
+  const m = ingestGames()[mode] || {}
+  const rec = {}
+  for (const g of Object.values(m)) for (const k in (g.picks || {})) { const r = rec[k] = rec[k] || { g: 0, w: 0 }; r.g++; if (g.win) r.w++ }
+  const ov = rosterStatsOverride()[mode] || {}
   const wrCls = w => w >= 50 ? 'good' : 'bad'
-  const rowFor = p => {
-    const cell6 = txt => `<td class="st-pend" colspan="6">${txt}</td>`
-    const head = `<td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td>`
-    const st = _statsData[p.name]
-    if (st && st.stats) { const s = st.stats; return `<tr>${head}<td>${s.games}</td><td class="${wrCls(s.wr)}">${s.wr}%</td><td>${s.kda}</td><td>${s.avgK}</td><td>${s.avgD}</td><td>${s.avgA}</td></tr>` }
-    return `<tr>${head}${cell6(st === 'err' ? 'OP.GG unavailable' : 'loading…')}</tr>`
-  }
-  const draw = () => { const t = document.getElementById('st-body'); if (t) t.innerHTML = roster.map(rowFor).join('') }
+  const cell = v => v == null ? '<span class="st-pend">—</span>' : v
+  const rows = roster.map(p => {
+    const r = rec[p.name] || { g: 0, w: 0 }, wr = r.g ? Math.round(r.w / r.g * 100) : 0, o = ov[p.name] || {}
+    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td><td>${r.g}</td><td class="${r.g ? wrCls(wr) : ''}">${r.g ? wr + '%' : '—'}</td><td>${cell(o.kda)}</td><td>${cell(o.avgK)}</td><td>${cell(o.avgD)}</td><td>${cell(o.avgA)}</td></tr>`
+  }).join('')
   el.innerHTML = `<div class="st-wrap">
-    <div class="st-title">📈 Stats <span class="ec-sub">live from OP.GG · all ranked</span></div>
-    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th><th>KDA</th><th>Avg&nbsp;K</th><th>Avg&nbsp;D</th><th>Avg&nbsp;A</th></tr></thead><tbody id="st-body"></tbody></table>
-    <div class="st-note">Pulled live from OP.GG. CS/min, GPM, KP%, DMG%, VSPM aren't exposed in OP.GG's player data, so those columns are omitted.</div>
+    <div class="st-title">📈 Stats · ${modeLbl} <span class="ec-sub">our recorded games</span></div>
+    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th><th>KDA</th><th>Avg&nbsp;K</th><th>Avg&nbsp;D</th><th>Avg&nbsp;A</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="st-note">Games &amp; win rate are from our recorded ${modeLbl} full-roster games. KDA / Avg K-D-A get filled per game from OP.GG via the Cowork browser-read.</div>
   </div>`
-  draw()
-  for (const p of roster) {
-    if (_statsData[p.name]) continue                       // cached (loaded / loading / err)
-    _statsData[p.name] = 'loading'
-    fetch(`/api/player-stats?name=${encodeURIComponent(p.display || p.name)}&tag=${encodeURIComponent(p.opggTag || 'NA1')}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(d => { _statsData[p.name] = (d && d.ok && d.stats) ? { stats: d.stats } : 'err'; if (poolView === 'stats') draw() })
-      .catch(() => { _statsData[p.name] = 'err'; if (poolView === 'stats') draw() })
-  }
 }
-// Re-fetch failed/empty players when the Stats tab is opened (so transient op.gg hiccups recover).
-function refreshStatsErrors() { for (const k in _statsData) if (_statsData[k] === 'err') delete _statsData[k] }
+function refreshStatsErrors() { /* op.gg all-time pull removed — stats now come from recorded games */ }
 
 function setPlayerRole(idx, role) {
   roster[idx].role = role
