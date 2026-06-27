@@ -1459,6 +1459,7 @@ function mergePool(base, learned, nameKey) {
   return filterExcluded(nameKey, Object.values(byId))
 }
 function setPoolView(v) {
+  if (v === 'stats' && typeof refreshStatsErrors === 'function') refreshStatsErrors()   // retry any op.gg misses
   poolView = v
   const tabs = { 'pv-opgg': 'opgg', 'pv-draft': 'drafttool', 'pv-tracker': 'tracker', 'pv-enemy': 'enemy', 'pv-picksbans': 'picksbans', 'pv-stats': 'stats' }
   for (const id in tabs) { const el = document.getElementById(id); if (el) el.classList.toggle('active', tabs[id] === v) }
@@ -2270,24 +2271,38 @@ function renderPicksBansTab(el) {
     ${Object.keys(pickByRole.other).length ? roleRow('OTHER', pickByRole.other) : ''}
   </div>`
 }
-// ── Stats tab — per-player stats. Games/Win-rate from our captured games now; the detailed
-// columns (KDA, CS/M, GPM, KP%, DMG%, VSPM) pull from OP.GG (next phase).
+// ── Stats tab — per-player stats pulled LIVE from OP.GG (games, win rate, KDA, avg K/D/A). Only
+// the columns OP.GG actually exposes for a player are shown; CS/M, GPM, KP%, DMG%, VSPM live in
+// OP.GG's global meta (not the player's data), so they're omitted. OP.GG aggregates all ranked.
+let _statsData = {}   // nameKey -> {stats} | 'loading' | 'err'
 function renderStatsTab(el) {
-  const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
-  const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
-  const rec = {}
-  for (const g of Object.values(m)) for (const k in (g.picks || {})) { const r = rec[k] = rec[k] || { g: 0, w: 0 }; r.g++; if (g.win) r.w++ }
-  const rows = roster.map(p => {
-    const r = rec[p.name] || { g: 0, w: 0 }, wr = r.g ? Math.round(r.w / r.g * 100) : 0
-    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td><td>${r.g}</td><td class="${wr >= 50 ? 'good' : 'bad'}">${r.g ? wr + '%' : '—'}</td><td class="st-pend" colspan="6">— OP.GG —</td></tr>`
-  }).join('')
   el.style.display = 'block'
+  const wrCls = w => w >= 50 ? 'good' : 'bad'
+  const rowFor = p => {
+    const cell6 = txt => `<td class="st-pend" colspan="6">${txt}</td>`
+    const head = `<td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td>`
+    const st = _statsData[p.name]
+    if (st && st.stats) { const s = st.stats; return `<tr>${head}<td>${s.games}</td><td class="${wrCls(s.wr)}">${s.wr}%</td><td>${s.kda}</td><td>${s.avgK}</td><td>${s.avgD}</td><td>${s.avgA}</td></tr>` }
+    return `<tr>${head}${cell6(st === 'err' ? 'OP.GG unavailable' : 'loading…')}</tr>`
+  }
+  const draw = () => { const t = document.getElementById('st-body'); if (t) t.innerHTML = roster.map(rowFor).join('') }
   el.innerHTML = `<div class="st-wrap">
-    <div class="st-title">📈 Stats · ${modeLbl}</div>
-    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th><th>KDA</th><th>CS/M</th><th>GPM</th><th>KP%</th><th>DMG%</th><th>VSPM</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="st-note">Games &amp; win rate are from our captured full-roster ${modeLbl} games. KDA / CS/M / GPM / KP% / DMG% / VSPM pull from OP.GG (featured = Ranked 5's, ranked flex = Flex) — wiring that up next.</div>
+    <div class="st-title">📈 Stats <span class="ec-sub">live from OP.GG · all ranked</span></div>
+    <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th><th>KDA</th><th>Avg&nbsp;K</th><th>Avg&nbsp;D</th><th>Avg&nbsp;A</th></tr></thead><tbody id="st-body"></tbody></table>
+    <div class="st-note">Pulled live from OP.GG. CS/min, GPM, KP%, DMG%, VSPM aren't exposed in OP.GG's player data, so those columns are omitted.</div>
   </div>`
+  draw()
+  for (const p of roster) {
+    if (_statsData[p.name]) continue                       // cached (loaded / loading / err)
+    _statsData[p.name] = 'loading'
+    fetch(`/api/player-stats?name=${encodeURIComponent(p.display || p.name)}&tag=${encodeURIComponent(p.opggTag || 'NA1')}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { _statsData[p.name] = (d && d.ok && d.stats) ? { stats: d.stats } : 'err'; if (poolView === 'stats') draw() })
+      .catch(() => { _statsData[p.name] = 'err'; if (poolView === 'stats') draw() })
+  }
 }
+// Re-fetch failed/empty players when the Stats tab is opened (so transient op.gg hiccups recover).
+function refreshStatsErrors() { for (const k in _statsData) if (_statsData[k] === 'err') delete _statsData[k] }
 
 function setPlayerRole(idx, role) {
   roster[idx].role = role

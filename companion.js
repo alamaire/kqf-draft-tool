@@ -39,6 +39,46 @@ function parsePool(html) {
   }
   return out.sort((a, b) => b.games - a.games);
 }
+// Aggregate a player's OP.GG champion pool into overall stats. Only fields OP.GG actually exposes
+// for the player are computed (games, win rate, KDA, avg K/D/A) — CS/min, GPM, DMG%, vision etc.
+// live in OP.GG's global meta data, NOT the player's pool, so they're intentionally omitted.
+function parsePlayerStats(html) {
+  const u = html.replace(/\\"/g, '"');
+  const re = /"match_up_stats":/g; let m; const seen = new Set();
+  let games = 0, wins = 0, K = 0, D = 0, A = 0;
+  while ((m = re.exec(u))) {
+    const head = u.slice(Math.max(0, m.index - 1400), m.index);
+    const hm = [...head.matchAll(/\{"id":(\d+),"play":(\d+),"win":(\d+),"lose":(\d+),"win_rate":([\d.]+)/g)];
+    if (!hm.length) continue;
+    const x = hm[hm.length - 1], id = +x[1]; if (id <= 0 || seen.has(id)) continue; seen.add(id);
+    const tail = head.slice(head.lastIndexOf('{"id":' + id));
+    const km = tail.match(/"kda":\{"kda":[\d.]+,"kill":(\d+),"death":(\d+),"assist":(\d+)/);
+    games += +x[2]; wins += +x[3];
+    if (km) { K += +km[1]; D += +km[2]; A += +km[3]; }
+  }
+  if (!games) return null;
+  return { games, wins, wr: Math.round(wins / games * 100), kda: +((K + A) / Math.max(1, D)).toFixed(2),
+    avgK: +(K / games).toFixed(1), avgD: +(D / games).toFixed(1), avgA: +(A / games).toFixed(1) };
+}
+const _statsCache = {};   // "name#tag" -> { t, stats }
+async function playerStats(name, tag) {
+  const key = (name + '#' + tag).toLowerCase();
+  const c = _statsCache[key];
+  if (c && Date.now() - c.t < 30 * 60 * 1000) return c.stats;
+  const url = `https://op.gg/summoners/na/${encodeURIComponent(name)}-${encodeURIComponent(tag || 'NA1')}/champions`;
+  // op.gg occasionally returns a page without the embedded data — retry a couple times before giving up.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch(url, { headers: SCOUT_UA });
+      if (r.ok) {
+        const stats = parsePlayerStats(await r.text());
+        if (stats) { _statsCache[key] = { t: Date.now(), stats }; return stats; }   // only cache SUCCESS
+      }
+    } catch { /* network hiccup — retry */ }
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  return null;   // not cached, so it retries next time
+}
 const _scoutCache = {};   // "name#tag" -> { t, pool }
 async function scoutSummoner(name, tag) {
   const key = (name + '#' + tag).toLowerCase();
@@ -372,6 +412,14 @@ http.createServer(async (req, res) => {
     if (!name) return J(res, 400, { ok: false, error: 'name required' });
     try { const pool = await scoutSummoner(name, tag); return J(res, 200, { ok: !!pool, name, tag, pool: pool || [] }); }
     catch (e) { return J(res, 200, { ok: false, error: String(e.message || e), pool: [] }); }
+  }
+  // Per-player OP.GG stats (games, win rate, KDA, avg K/D/A) for the Stats tab.
+  if (url === '/api/player-stats') {
+    const q = new URLSearchParams(req.url.split('?')[1] || '');
+    const name = (q.get('name') || '').trim(), tag = (q.get('tag') || 'NA1').trim();
+    if (!name) return J(res, 400, { ok: false, error: 'name required' });
+    try { const stats = await playerStats(name, tag); return J(res, 200, { ok: !!stats, name, tag, stats: stats || null }); }
+    catch (e) { return J(res, 200, { ok: false, error: String(e.message || e), stats: null }); }
   }
   // Paste a fresh Riot key → run the roster re-pull live (key only as an env var to
   // the child process; never written to disk; roster-data.js output is pure stats).
