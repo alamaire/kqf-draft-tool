@@ -31,7 +31,7 @@ try {
 } catch { /* no custom roster file */ }
 const FULL_ROSTER = 5;          // a team must have this many roster members to count
 const FLEX_QUEUE = 440;         // Ranked Flex
-const RANKED5_QUEUE = null;     // TODO: set to the Ranked 5's queueId once it launches (Jun 26)
+const RANKED5_QUEUE = 2400;     // Ranked 5's queueId (confirmed from a live game's gameflow)
 const SOLO_QUEUE = 420;         // Ranked Solo/Duo — for the solo-queue matchup history
 const SOLO_KEY = 'monkeydadam'; // the player Solo Queue mode optimizes for (SOLO_PLAYER in the tool)
 const POS = { TOP: 'top', JUNGLE: 'jungle', MIDDLE: 'mid', BOTTOM: 'adc', UTILITY: 'support' };

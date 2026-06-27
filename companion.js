@@ -127,7 +127,7 @@ async function champSelect() {
 // — which the tool merges into its learning history. Pick order is only available
 // live (Riot's post-game API omits it), so this is the only way to capture it.
 const DRAFTS_FILE = path.join(ROOT, 'live-drafts.json');
-const QUEUE_MODE = { 420: 'solo', 440: 'flex' /* , <ranked5 id>: 'ranked5' once known */ };
+const QUEUE_MODE = { 420: 'solo', 440: 'flex', 2400: 'ranked5' };
 // Resolve a captured game's mode. Ranked 5's is a 5-stack tournament/custom draft whose
 // queueId may be custom/unknown — so ANY full-roster drafted game that isn't Flex/Solo is
 // treated as Ranked 5's. (Captures are full-roster-only, so this reliably tags them tonight

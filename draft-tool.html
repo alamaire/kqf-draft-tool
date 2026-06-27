@@ -2069,6 +2069,33 @@ function renderRoster() {
 
 // Tracker view — team + per-player games/win-rate from full-roster Riot games,
 // for the CURRENT mode (Flex vs Ranked 5's).
+// Shape a live-captured draft into a Tracker game row {id, win, date, picks{nameKey:champId}, bans}.
+function captureToGame(d) {
+  const our = d.ourSide || 'blue'
+  const names = (d[our] && d[our].names) || [], picks = (d[our] && d[our].picks) || []
+  const pk = {}
+  for (let i = 0; i < 5; i++) {
+    if (!names[i] || !picks[i]) continue
+    const rp = roster.find(p => (p.display || p.name).toLowerCase() === String(names[i]).toLowerCase())
+    const cid = NAME_ID[picks[i]]; if (cid) pk[(rp ? rp.name : String(names[i]).toLowerCase())] = cid
+  }
+  const ourBans = ((d[our] && d[our].bans) || []).map(n => NAME_ID[n]).filter(Boolean)
+  return { id: d.gameId, win: d.result === 'win', date: d.date, picks: pk, bans: { our: ourBans } }
+}
+// Full-roster games for the CURRENT mode: Riot pull + live captures, deduped by gameId, newest
+// first — so captured games (e.g. Ranked 5's, before any Riot re-pull) show in the Tracker.
+function modeGames() {
+  const b = rosterBucket(true)
+  const seen = new Set(), out = []
+  for (const g of ((b && b.games) || [])) { if (g.id != null) { if (seen.has(g.id)) continue; seen.add(g.id) } out.push(g) }
+  for (const d of historyLoad()) {
+    if ((d.mode || 'flex') !== mainTab || (d.result !== 'win' && d.result !== 'loss')) continue
+    if (d.gameId != null) { if (seen.has(d.gameId)) continue; seen.add(d.gameId) }
+    out.push(captureToGame(d))
+  }
+  out.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+  return out
+}
 function renderTracker(el) {
   updateRunningRecord()                 // keep the all-time (never-reset) record current
   const tr = teamRecord()
@@ -2085,8 +2112,9 @@ function renderTracker(el) {
       <div class="track-sub">${rec.games} game${rec.games !== 1 ? 's' : ''}</div>
     </div>`
   }).join('')
-  // Individual games — the actual full-roster match history for this mode.
-  const games = (b && b.games) || []
+  // Individual games — full-roster match history for this mode: Riot pull PLUS our live
+  // captures (deduped by gameId), so games show up even before a Riot re-pull (e.g. Ranked 5's).
+  const games = modeGames()
   const gamesHtml = games.slice(0, 10).map(g => {
     const champs = roster.filter(p => g.picks[p.name]).map(p => {
       const c = CHAMPS[g.picks[p.name]]
