@@ -173,10 +173,10 @@ async function champSelect() {
 // — which the tool merges into its learning history. Pick order is only available
 // live (Riot's post-game API omits it), so this is the only way to capture it.
 const DRAFTS_FILE = path.join(ROOT, 'live-drafts.json');
-// We ONLY track two modes: Flex (queueId 440) and Ranked 5's (queueId 2400). Every other
-// queue — normals/draft, soloq, bots, customs, ARAM, Clash, etc. — returns null and is NOT
-// captured or synced. So off-night practice/normal games are ignored end-to-end.
-const QUEUE_MODE = { 440: 'flex', 2400: 'ranked5' };
+// We ONLY track two modes: Flex (queueId 440) and Ranked 5's / scrims (queueId 710, shown as
+// "Featured" on op.gg — tournament draft). Every other queue is null and NOT captured/synced.
+// NOTE: queueId 2400 is "ARAM: Mayhem" (an event mode), NOT Ranked 5's — do not track it.
+const QUEUE_MODE = { 440: 'flex', 710: 'ranked5' };
 function resolveMode(queueId) { return QUEUE_MODE[queueId] || null; }
 // Roster account names (lowercased) — used to detect a FULL-roster game. Live drafting
 // always runs off MonkeyDAdam's client; teammates' names are visible in champ select.

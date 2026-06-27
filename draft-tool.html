@@ -3187,7 +3187,7 @@ function historyReplace(arr) {
 
 // ── Persistent full-roster game store (per mode) — the SINGLE source of truth for the Tracker
 // (and the upcoming Enemy/Picks-Bans tabs). Grows FOREVER: it never shrinks with Riot's sliding
-// 40-game window, and only admits validated Flex(440)/Ranked5(2400) full-roster games, so stale
+// 40-game window, and only admits validated Flex(440)/Ranked5(710) full-roster games, so stale
 // or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
 // cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
 const GAMES_KEY = 'kqf_games_v2'   // v2: fresh start — tracking begins from live captures only
@@ -3199,7 +3199,7 @@ function ingestGames() {
   // Games come ONLY from live captures (the draft auto-saves when the game completes). No client
   // history pull — it's a running update as games are played; op.gg is used to verify/fill stats.
   for (const mode of ['flex', 'ranked5']) {
-    const wantQ = mode === 'ranked5' ? 2400 : 440
+    const wantQ = mode === 'ranked5' ? 710 : 440   // 710 = Ranked 5's/scrims (op.gg "Featured"); 2400 is ARAM Mayhem
     for (const d of historyLoad()) {
       const k = numId(d.gameId)
       if (d.queueId !== wantQ || !k || s[mode][k]) continue

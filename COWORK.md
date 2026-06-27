@@ -39,7 +39,12 @@ We only track **Flex** ("ranked flex" on op.gg) and **Ranked 5's** ("featured" o
 **full-roster** games (5 of the 7 players above on the same team). Ignore everything else.
 
 See which games we've already recorded: `GET http://localhost:5500/api/live-drafts` (array of
-games with `gameId`, `queueId` 440=flex / 2400=ranked5, `result`, and per-side `picks`/`bans`/`names`).
+games with `gameId`, `queueId` **440=Flex / 710=Ranked 5's** (op.gg "Featured", tournament draft),
+`result`, and per-side `picks`/`bans`/`names`).
+
+**Queue IDs (Cowork's catch — confirmed):** Flex = **440**, Ranked 5's/scrims = **710** (op.gg
+"Featured"). **2400 = ARAM Mayhem — do NOT track it.** When you backfill via `/api/add-game`, send
+`queueId: 710` for scrims so they bucket as ranked5.
 
 ## 1) Per-player Stats → POST /api/set-roster-stats
 Compute each player's averages **over our recorded games for that mode** (match op.gg games to the
