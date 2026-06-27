@@ -1533,12 +1533,31 @@ function applyLiveDraft(s) {
   DS.step = getActiveDraftOrder().length
   render(); filterGrid()
 }
+let _liveInChamp = false, _lastGamePhase = ''
+const IN_GAME_PHASES = ['GameStart', 'InProgress']
+// Game finished (left an in-game phase) → pull the auto-saved result into the tracker and clear
+// the board so the tool is clean and armed for the next draft, hands-free.
+function readyForNextDraft() {
+  let tries = 0
+  const pull = () => { mergeLiveDrafts(); if (++tries < 8) setTimeout(pull, 5000) }   // the save lands a few s after game end
+  pull()
+  if (typeof resetDraft === 'function') resetDraft()   // clears picks/bans + scouted enemies
+  setLiveStatus('✓ game saved · ready for next draft', 'on')
+}
 async function pollLive() {
   try {
     const r = await fetch('/api/lcu', { cache: 'no-store' }); if (!r.ok) throw 0
     const s = await r.json()
-    if (s.active) { applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.phase || 'champ select'), 'armed'); scoutFromLive(s) }
-    else setLiveStatus('live ready · ' + (s.reason || 'waiting'), 'on')
+    const phase = s.gamePhase || ''
+    if (s.active) {
+      if (!_liveInChamp) { _liveInChamp = true; resetScout() }   // a NEW champ select → drop last game's scout intel
+      applyLiveDraft(s); setLiveStatus('● LIVE — ' + (s.phase || 'champ select'), 'armed'); scoutFromLive(s)
+    } else {
+      _liveInChamp = false
+      if (IN_GAME_PHASES.includes(_lastGamePhase) && !IN_GAME_PHASES.includes(phase)) readyForNextDraft()
+      else setLiveStatus('live ready · ' + (s.reason || 'waiting'), 'on')
+    }
+    _lastGamePhase = phase
   } catch {
     if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null }
     const el = document.getElementById('live-status'); if (el) el.className = 'hidden'
@@ -1585,7 +1604,7 @@ function startLive() {
     if (modal && !modal.classList.contains('hidden')) openRiotKeyModal()   // refresh text now that companion is known
     setLiveStatus('live ready', 'on')
     _liveTimer = setInterval(pollLive, 1500); pollLive()
-    mergeLiveDrafts(); setInterval(mergeLiveDrafts, 30000)   // pull in auto-captured games
+    mergeLiveDrafts(); setInterval(mergeLiveDrafts, 15000)   // pull in auto-captured games
   }).catch(() => { /* no companion — normal manual mode */ })
 }
 // Merge the companion's auto-captured live drafts (full pick/ban order + result)

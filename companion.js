@@ -115,9 +115,12 @@ async function champSelect() {
   const a = lcuAuth();
   if (!a) return { active: false, reason: 'League client not running' };
   try {
+    let gamePhase = '';
+    try { const gf = await lcuGet(a, '/lol-gameflow/v1/phase'); if (gf && gf !== '404') gamePhase = String(gf); } catch {}
     const s = await lcuGet(a, '/lol-champ-select/v1/session');
-    if (s === '404' || !s) return { active: false, reason: 'not in champ select' };
-    return parseSession(s);
+    if (s === '404' || !s) return { active: false, reason: gamePhase ? ('phase: ' + gamePhase) : 'not in champ select', gamePhase };
+    const parsed = parseSession(s); parsed.gamePhase = gamePhase || 'ChampSelect';
+    return parsed;
   } catch (e) { return { active: false, reason: String(e.message || e) }; }
 }
 
