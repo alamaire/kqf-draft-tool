@@ -66,6 +66,18 @@ async function lcuGet(a, p) {
   return r.ok ? r.json() : (r.status === 404 ? '404' : null);
 }
 // Parse a champ-select session into the tool's draft shape.
+// Which side are WE on? Prefer the player's team field (100/1 = blue, 200/2 = red), then our
+// own cell id (blue 0-4, red 5-9), then the team's cell range. Robust across draft types.
+function detectBlue(s) {
+  const myTeam = s.myTeam || [];
+  const me = myTeam.find(c => c.cellId === s.localPlayerCellId) || myTeam[0];
+  const tm = me && me.team;
+  if (tm === 1 || tm === 100) return true;
+  if (tm === 2 || tm === 200) return false;
+  if (s.localPlayerCellId != null) return s.localPlayerCellId < 5;
+  const cells = myTeam.map(c => c.cellId);
+  return cells.length ? cells.every(c => c < 5) : true;
+}
 // Bans read from the champ-select ACTION log — the reliable live source. session.bans.*
 // is flaky (often empty during tournament-draft ban phases), so we key off the ban actions
 // (championId set = hovered or locked) and split them by the actor's cell into our/their.
@@ -80,7 +92,7 @@ function bansFromActions(s, myCells) {
 const mergeBans = (a, b) => [...new Set([...(a || []), ...(b || [])].filter(Boolean))];
 function parseSession(s) {
   const myCells = (s.myTeam || []).map(c => c.cellId);
-  const weAreBlue = myCells.length ? myCells.every(c => c < 5) : true;
+  const weAreBlue = detectBlue(s);
   const ourSide = weAreBlue ? 'blue' : 'red', theirSide = weAreBlue ? 'red' : 'blue';
   const teamPicks = (team) => (team || []).map(c => ({
     championId: c.championId || 0,
@@ -94,7 +106,10 @@ function parseSession(s) {
   teams[theirSide] = { picks: teamPicks(s.theirTeam), bans: mergeBans(s.bans && s.bans.theirTeamBans, ab.their) };
   const me = (s.myTeam || []).find(c => c.cellId === s.localPlayerCellId);
   return { active: true, ourSide, myRole: me ? (POS2ROLE[me.assignedPosition] || null) : null, teams,
-    phase: (s.timer && s.timer.phase) || '' };
+    phase: (s.timer && s.timer.phase) || '',
+    // Diagnostics for verifying side/ban detection on a live draft (visible via /api/lcu).
+    _debug: { ourSide, localCell: s.localPlayerCellId, myCells, theirCells: (s.theirTeam || []).map(c => c.cellId),
+      teamField: me && me.team, banActions: (ab.our.length + ab.their.length), sessionBans: ((s.bans && s.bans.myTeamBans) || []).filter(Boolean).length } };
 }
 async function champSelect() {
   const a = lcuAuth();
@@ -157,7 +172,7 @@ const nm = id => CHAMP_NAME[id] || null;
 // Build the saved-draft-shaped snapshot (names) from a champ-select session.
 function snapshotDraft(s) {
   const myCells = (s.myTeam || []).map(c => c.cellId);
-  const weBlue = myCells.length ? myCells.every(c => c < 5) : true;
+  const weBlue = detectBlue(s);
   const ourSide = weBlue ? 'blue' : 'red';
   const side = { blue: { picks: [null,null,null,null,null], bans: [null,null,null,null,null], names: ['','','','',''], roles: ['top','jungle','mid','adc','support'] },
                  red:  { picks: [null,null,null,null,null], bans: [null,null,null,null,null], names: ['','','','',''], roles: ['top','jungle','mid','adc','support'] } };
