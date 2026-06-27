@@ -206,15 +206,95 @@ function snapshotDraft(s) {
   }
   return { ourSide, sequence, blue: side.blue, red: side.red, fullRoster };
 }
-async function resolveResult(a, gameId) {
-  const mh = await lcuGet(a, '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=4');
+// Role for a post-game participant: teamPosition if present, else lane+role heuristic.
+function lcuRoleOf(p) {
+  const tp = (p.teamPosition || '').toLowerCase();
+  if (POS2ROLE[tp]) return POS2ROLE[tp];
+  const lane = ((p.timeline && p.timeline.lane) || p.lane || '').toUpperCase();
+  const role = ((p.timeline && p.timeline.role) || p.role || '').toUpperCase();
+  if (lane === 'TOP') return 'top';
+  if (lane === 'JUNGLE') return 'jungle';
+  if (lane === 'MIDDLE' || lane === 'MID') return 'mid';
+  if (lane === 'BOTTOM' || lane === 'BOT') return role.includes('SUPPORT') ? 'support' : 'adc';
+  return null;
+}
+// Pull a finished game from LCU match history (recent window). gameId optional → latest.
+async function fetchGame(a, gameId) {
+  const mh = await lcuGet(a, '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=19');
   const games = (mh && mh.games && mh.games.games) || [];
-  const g = gameId ? games.find(x => x.gameId === gameId) : games[0];
-  if (!g) return undefined;                       // not in history yet → retry later
-  let pid = (g.participantIdentities || []).find(pi => pi.player && pi.player.puuid === myPuuid);
-  pid = pid ? pid.participantId : (g.participants && g.participants[0] && g.participants[0].participantId);
-  const part = (g.participants || []).find(p => p.participantId === pid);
-  return part ? (part.stats && part.stats.win ? 'win' : 'loss') : undefined;
+  return gameId ? games.find(x => x.gameId === gameId) : games[0];
+}
+// Rebuild a saved-draft-shaped object from POST-GAME match data — has picks, result, AND bans
+// reliably (the live champ-select doesn't always expose bans, e.g. Ranked 5's). No pick ORDER.
+function parseGame(g) {
+  if (!g) return null;
+  const idents = {};
+  for (const pi of (g.participantIdentities || [])) idents[pi.participantId] = pi.player || {};
+  const parts = (g.participants || []).map(p => {
+    const pl = idents[p.participantId] || {};
+    return { championId: p.championId, teamId: p.teamId, role: lcuRoleOf(p),
+      name: pl.gameName || pl.summonerName || '', puuid: pl.puuid || '', win: !!(p.stats && p.stats.win) };
+  });
+  const meP = parts.find(p => p.puuid === myPuuid) || parts[0];
+  if (!meP) return null;
+  const ourTeamId = meP.teamId, ourSide = ourTeamId === 100 ? 'blue' : 'red';
+  const ourCount = parts.filter(p => p.teamId === ourTeamId && ROSTER_NAMES.has((p.name || '').toLowerCase())).length;
+  const bansByTeam = {};
+  for (const t of (g.teams || [])) bansByTeam[t.teamId] = (t.bans || []).slice()
+    .sort((x, y) => (x.pickTurn || 0) - (y.pickTurn || 0)).map(b => b.championId).filter(c => c > 0);
+  const buildSide = (teamId, withNames) => {
+    const sd = { picks: [null,null,null,null,null], bans: [], names: ['','','','',''], roles: ['top','jungle','mid','adc','support'] };
+    for (const p of parts.filter(x => x.teamId === teamId)) {
+      let slot = POS_ROLE[p.role];
+      if (slot == null || sd.picks[slot]) slot = sd.picks.indexOf(null);
+      if (slot >= 0 && slot < 5) { sd.picks[slot] = nm(p.championId); if (p.role) sd.roles[slot] = p.role; if (withNames) sd.names[slot] = p.name; }
+    }
+    sd.bans = (bansByTeam[teamId] || []).map(nm).filter(Boolean);
+    return sd;
+  };
+  return { ourSide, fullRoster: ourCount >= 5, result: meP.win ? 'win' : 'loss',
+    queueId: g.queueId, date: new Date(g.gameCreation || Date.now()).toISOString(),
+    blue: buildSide(100, ourSide === 'blue'), red: buildSide(200, ourSide === 'red') };
+}
+// Safety net: auto-save any completed full-roster game that the live watcher missed (e.g. the
+// companion restarted mid-game) — reconstructed entirely from match history, bans included.
+async function reconcileMatchHistory(a) {
+  try {
+    if (!myPuuid) { const me = await lcuGet(a, '/lol-summoner/v1/current-summoner'); if (me && me !== '404') myPuuid = me.puuid; }
+    if (!myPuuid) return 0;
+    const mh = await lcuGet(a, '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=19');
+    const games = (mh && mh.games && mh.games.games) || [];
+    const drafts = loadDrafts();
+    const byId = new Map(drafts.map(d => [d.gameId, d]));
+    let changed = 0, dirty = false;
+    for (const g of games) {
+      const gid = g.gameId; if (!gid) continue;
+      const existing = byId.get(gid);
+      if (existing) {
+        // Already saved — but backfill bans if the live capture missed them (e.g. Ranked 5's).
+        const noBans = !((existing.blue && existing.blue.bans || []).length) && !((existing.red && existing.red.bans || []).length);
+        if (noBans && existing.blue && existing.red) {
+          const pg = parseGame(g);
+          if (pg && ((pg.blue.bans || []).length || (pg.red.bans || []).length)) {
+            existing.blue.bans = pg.blue.bans; existing.red.bans = pg.red.bans; dirty = true; changed++;
+            console.log(`✓ backfilled bans for game ${gid} from match history`);
+          }
+        }
+        watch.savedIds.add(gid); continue;
+      }
+      if (watch.savedIds.has(gid)) continue;
+      if (watch.pending && watch.pending.gameId === gid) continue;   // let the live capture (with pick order) win
+      const pg = parseGame(g);
+      if (!pg) continue;
+      if (!pg.fullRoster) { watch.savedIds.add(gid); continue; }     // not full roster — mark so we stop re-scanning it
+      const entry = { gameId: gid, date: pg.date, queueId: pg.queueId, mode: resolveMode(pg.queueId, true),
+        ourSide: pg.ourSide, blue: pg.blue, red: pg.red, result: pg.result, notes: 'Auto-saved from match history', live: false };
+      drafts.unshift(entry); byId.set(gid, entry); watch.savedIds.add(gid); dirty = true; changed++;
+      console.log(`✓ auto-saved completed game ${gid} (${entry.mode}, ${entry.result}) from match history`);
+    }
+    if (dirty) { if (drafts.length > 200) drafts.length = 200; fs.writeFileSync(DRAFTS_FILE, JSON.stringify(drafts, null, 2)); }
+    return changed;
+  } catch { return 0; }   // match history unavailable — try again next pass
 }
 async function watchTick() {
   const a = lcuAuth(); if (!a) return;
@@ -238,11 +318,19 @@ async function watchTick() {
       // Only SAVE full-roster games to the learning history (skip games with randoms) —
       // the live draft/suggestions still ran, we just don't record this one.
       if (!watch.pending.fullRoster) { console.log('skipped capture — not a full-roster game'); if (gid) watch.savedIds.add(gid); watch.pending = null; watch.tries = 0; return; }
-      // resolve W/L from match history (retry a few ticks until it lands).
-      const result = await resolveResult(a, gid);
+      // Pull the finished game from match history (retry a few ticks until it lands) — gives
+      // W/L AND bans, which the live champ-select may not have exposed (e.g. Ranked 5's).
+      const g = await fetchGame(a, gid);
+      const pg = g ? parseGame(g) : null;
+      const result = pg ? pg.result : undefined;
       watch.tries++;
       if (result !== undefined || watch.tries > 12) {
         const p = watch.pending;
+        // Backfill bans from post-game data if the live snapshot didn't capture any.
+        if (pg) {
+          if (!(p.blue.bans || []).length) p.blue.bans = pg.blue.bans;
+          if (!(p.red.bans || []).length) p.red.bans = pg.red.bans;
+        }
         const entry = { gameId: gid || Date.now(), date: p.date, queueId: p.queueId, mode: resolveMode(p.queueId, p.fullRoster),
           ourSide: p.ourSide, sequence: p.sequence, blue: p.blue, red: p.red, result: result || null, notes: 'Auto-captured live', live: true };
         saveDraftEntry(entry); if (gid) watch.savedIds.add(gid);
@@ -327,5 +415,9 @@ http.createServer(async (req, res) => {
   for (const d of loadDrafts()) if (d.gameId) watch.savedIds.add(d.gameId);   // don't re-save known games
   await loadChampNames();
   setInterval(watchTick, 3000);   // capture champ select → game → result
+  // Safety net: auto-save completed full-roster games the live watcher missed (incl. while the
+  // companion was down/restarting). Runs shortly after boot, then every 60s.
+  setTimeout(() => { const a = lcuAuth(); if (a) reconcileMatchHistory(a); }, 8000);
+  setInterval(() => { const a = lcuAuth(); if (a) reconcileMatchHistory(a); }, 60000);
   console.log('Live draft auto-capture armed.');
 });
