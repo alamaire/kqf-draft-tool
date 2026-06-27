@@ -350,6 +350,9 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .st-table td.st-pl{text-align:left;font-weight:700;color:var(--gold-l)}
 .st-pend{color:var(--gray-d);font-style:italic}
 .st-note{font-size:10px;color:var(--gray-l);margin-top:8px;line-height:1.5}
+.st-sync{margin-left:auto;font-size:10px;font-weight:600;color:var(--gold-l);cursor:pointer;border:1px solid var(--gold-d);border-radius:4px;padding:2px 8px}
+.st-sync:hover{background:var(--gold-d);color:var(--dark2)}
+.st-title{display:flex;align-items:center;gap:8px}
 #roster-cards.rc-full{width:100%;flex-basis:100%;max-height:none;overflow:visible}
 .pr-del{margin-left:auto;color:var(--gray-l);cursor:pointer;font-size:11px;padding:0 6px}
 .pr-del:hover{color:var(--red)}
@@ -2321,7 +2324,7 @@ function renderStatsTab(el) {
   }).join('')
   const upd = _coworkStats && _coworkStats.updated ? ' · op.gg ' + new Date(_coworkStats.updated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
   el.innerHTML = `<div class="st-wrap">
-    <div class="st-title">📈 Stats · ${modeLbl} <span class="ec-sub">our recorded games${upd}</span></div>
+    <div class="st-title">📈 Stats · ${modeLbl} <span class="ec-sub">our recorded games${upd}</span><span class="st-sync" title="Re-pull the latest stats Cowork pushed" onclick="syncCoworkStats()">⟳ Sync from Cowork</span></div>
     <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th>${STAT_COLS.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
     <div class="st-note">Games &amp; win rate are from our recorded ${modeLbl} full-roster games. KDA / Avg K-D-A / CS-M / GPM / KP% / DMG% / VSPM are read from op.gg by Cowork (for our recorded games) and filled in automatically.</div>
   </div>`
@@ -2331,6 +2334,11 @@ function renderStatsTab(el) {
   }
 }
 function refreshStatsErrors() { _coworkStats = null }   // re-pull Cowork stats when the Stats tab is reopened
+function syncCoworkStats() {   // force an immediate re-pull of /api/roster-stats without reopening the tab
+  _coworkStats = null
+  const el = document.getElementById('roster-cards'); if (el) renderStatsTab(el)
+}
+window.syncCoworkStats = syncCoworkStats
 
 // ── Practice sandbox — isolated draft history (kqf_practice_drafts). NEVER auto-pulls, never
 // touches the store/stats/other pages. Save current board, look back, clear.
