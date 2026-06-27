@@ -47,8 +47,14 @@ games with `gameId`, `queueId` **440=Flex / 710=Ranked 5's** (op.gg "Featured", 
 `queueId: 710` for scrims so they bucket as ranked5.
 
 ## 1) Per-player Stats → POST /api/set-roster-stats
-Compute each player's averages **over our recorded games for that mode** (match op.gg games to the
-gameIds/dates from `/api/live-drafts`). Send numbers only (no `%`/units). Omit any field you can't read.
+**Read match-by-match. Full-roster games only. Keep Flex and Ranked 5's separate.**
+- Do NOT use op.gg's champions-page whole-queue aggregate — it includes games without our team.
+- For each player, go through their match history, keep only games where **5 of our 7 roster were on
+  the same team**, and average that player's stats over just those games.
+- Compute Flex and Ranked 5's **separately** and POST each as its own call (`"mode":"flex"` and
+  `"mode":"ranked5"`). The tool shows them on the matching main tab — never mixed.
+- Cross-reference `/api/live-drafts` for the gameIds/dates of games we've recorded.
+- Send numbers only (no `%`/units). Omit any field op.gg doesn't show (e.g. VSPM isn't exposed).
 
 ```
 POST http://localhost:5500/api/set-roster-stats
