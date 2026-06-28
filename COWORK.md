@@ -46,6 +46,24 @@ games with `gameId`, `queueId` **440=Flex / 710=Ranked 5's** (op.gg "Featured", 
 "Featured"). **2400 = ARAM Mayhem — do NOT track it.** When you backfill via `/api/add-game`, send
 `queueId: 710` for scrims so they bucket as ranked5.
 
+## Sync workflow — what to do when Adam says "sync"
+Do these in order, **incrementally** (only touch what's changed — don't redo work):
+
+1. **Reconcile games.** `GET /api/live-drafts` and `GET /api/status`. For each mode, list the
+   roster's full-roster games on op.gg (Flex = "ranked flex", Ranked 5's = "featured"). **Verify the
+   op.gg games match what's recorded.** For any op.gg full-roster game **missing** from
+   `/api/live-drafts`, `POST /api/add-game` to add it (`queueId` 440/710, role-ordered our picks,
+   result). If the store has a game that's NOT on op.gg, flag it to Adam (don't delete).
+2. **Update only missing/changed stats.** Compare op.gg to `GET /api/roster-stats`. Only push stats
+   that **aren't already present or have changed** because of new games:
+   - A player/mode with **no stats yet** → compute and POST.
+   - A mode that got **new games since the last sync** → recompute that mode's per-player aggregate
+     over our recorded games and POST it.
+   - A mode with **no new games** → skip it (leave existing stats as-is; don't re-push).
+3. Report what you added (games + which stats) so Adam can hit "⟳ Sync from Cowork" and see it.
+
+Net: every sync makes the recorded games match op.gg and fills in only the stats that are new.
+
 ## 1) Per-player Stats → POST /api/set-roster-stats
 **Read match-by-match. Full-roster games only. Keep Flex and Ranked 5's separate.**
 - Do NOT use op.gg's champions-page whole-queue aggregate — it includes games without our team.
