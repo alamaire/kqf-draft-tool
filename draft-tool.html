@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.enemyfix'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.liveside'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -1572,8 +1572,11 @@ function setLiveStatus(txt, cls) {
 }
 function applyLiveDraft(s) {
   if (!s.active || !s.mode) return                      // only sync Flex / Ranked 5's
-  if (s.mode !== mainTab) switchMainTab(s.mode)         // follow the live game's mode (sets the right draft order)
+  // Recognize OUR side FIRST (blue vs red, from the client), THEN switch mode — so our roster
+  // names land on the correct side. Without this, names stamp on the old side → the board flips.
   if (s.ourSide && s.ourSide !== mySide) { mySide = s.ourSide; syncSideButtons() }
+  if (s.mode !== mainTab) switchMainTab(s.mode)         // follow the live game's mode (sets the right draft order)
+  applyRosterToTeam()                                   // place our roster names/roles on OUR (now correct) side
   for (const side of ['blue', 'red']) {
     DS[side].picks = [null, null, null, null, null]
     DS[side].bans = [null, null, null, null, null]
@@ -1588,7 +1591,11 @@ function applyLiveDraft(s) {
       if (slot >= 0 && slot < 5 && !DS[side].picks[slot]) DS[side].picks[slot] = p.championId
     }
   }
-  DS.step = getActiveDraftOrder().length
+  // Step = how far the draft has progressed (filled bans+picks), so suggestions reflect the CURRENT
+  // phase (ban vs pick) and our turn — not "draft complete". (Was forced to the end → no ban sugg.)
+  let filled = 0
+  for (const sd of ['blue', 'red']) filled += DS[sd].bans.filter(Boolean).length + DS[sd].picks.filter(Boolean).length
+  DS.step = Math.min(filled, getActiveDraftOrder().length)
   render(); filterGrid()
 }
 let _liveInChamp = false, _lastGamePhase = ''
@@ -3592,11 +3599,11 @@ function getSuggestions() {
   // protect OUR draft, so they stay in our perspective regardless.
   const order = getActiveDraftOrder()
   const onClock = DS.step < order.length ? order[DS.step] : null
-  const forSide = onClock ? onClock.team : mySide
-  const isOurs  = forSide === mySide
-  // When it's the ENEMY's ban on the clock, predict what THEY would ban against us
-  // (deny our comfort/strengths) so we can read their thinking.
-  const enemyBanTurn = onClock && onClock.type === 'ban' && !isOurs
+  // ALWAYS suggest for US — our best picks in pick phase, our best bans in ban phase — regardless of
+  // whose turn is on the clock. (We don't predict the enemy's pick/ban; the user wants our side only.)
+  const forSide = mySide
+  const isOurs  = true
+  const enemyBanTurn = false
   const pAlly  = isOurs ? ourPicks : theirPicks     // picking side's own picks
   const pEnemy = isOurs ? theirPicks : ourPicks     // the side they're up against
   const roles  = openRolesFor(forSide)
