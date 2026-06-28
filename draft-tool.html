@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.liveside'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.enemyrole2'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -2219,15 +2219,18 @@ function renderTracker(el) {
   </div>`
 }
 
-// Manual enemy-role corrections for BACKFILLED games — op.gg doesn't give reliable enemy positions
-// for Ranked 5's, so the slot order is wrong. LIVE-captured games use the draft position instead and
-// ignore this map. champName -> role. (Update this list as more backfilled enemies need fixing.)
+// Enemy roles can't be auto-detected for Ranked 5's: Riot hides the enemy's assigned positions in
+// champ select (live captures come in as default pick-order roles) and op.gg has none either. So the
+// Enemy Champions tab groups by this MANUAL champ->role map first, then the champ's meta role for any
+// champ not listed. Stable + deterministic (never re-derived from pick order). Extend as needed.
+// (A champ that's played two roles across games can only sit in one bucket here — newest call wins,
+// e.g. Aatrox moved jungle→top.)
 const ENEMY_ROLE_FIX_NAMES = {
-  top: ['Camille', 'Yone', "K'Sante", 'Gnar'],
-  jungle: ['Aatrox', 'Ivern', 'Sylas', 'Jarvan IV'],
-  mid: ['Trundle', 'Akali', 'Ryze', 'Locke'],
-  adc: ['Kalista', 'Ezreal', 'Yasuo', 'Aphelios'],
-  support: ['Bard', 'Karma', 'Yuumi', 'Lulu'],
+  top: ['Camille', 'Yone', "K'Sante", 'Gnar', 'Maokai', 'Aatrox'],
+  jungle: ['Ivern', 'Sylas', 'Jarvan IV', 'Karthus'],
+  mid: ['Trundle', 'Akali', 'Ryze', 'Locke', 'Fizz', 'Lux', 'Vladimir'],
+  adc: ['Kalista', 'Ezreal', 'Yasuo', 'Aphelios', 'Miss Fortune', 'Caitlyn'],
+  support: ['Bard', 'Karma', 'Yuumi', 'Lulu', 'Alistar', 'Mel', 'Leona'],
 }
 function enemyRoleFix() {
   const m = {}
@@ -2247,9 +2250,9 @@ function renderEnemyTab(el) {
     gamesWithData++
     for (const e of g.enemy) {
       const cid = (typeof e === 'object') ? e.cid : e
-      const storedRole = (typeof e === 'object' && e.role) ? e.role : null
-      // Live capture → trust the draft position; backfill → manual fix wins (op.gg slots are wrong).
-      const role = g.live ? (storedRole || fix[cid] || primaryRole(cid)) : (fix[cid] || storedRole || primaryRole(cid))
+      // Manual map first, then the champ's meta role. We do NOT trust the captured pick-order role —
+      // Riot doesn't expose enemy positions in Ranked 5's, so that order is meaningless.
+      const role = fix[cid] || primaryRole(cid)
       const bucket = byRole[role] || byRole.other
       const r = bucket[cid] = bucket[cid] || { w: 0, l: 0 }; g.win ? r.w++ : r.l++
     }
