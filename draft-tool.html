@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.enemyrole'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.statkeys'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -2306,7 +2306,13 @@ function renderStatsTab(el) {
   const rec = {}
   for (const g of Object.values(m)) for (const k in (g.picks || {})) { const r = rec[k] = rec[k] || { g: 0, w: 0 }; r.g++; if (g.win) r.w++ }
   const remote = (_coworkStats && _coworkStats[mode]) || {}, local = rosterStatsOverride()[mode] || {}
-  const statOf = k => Object.assign({}, remote[k] || {}, local[k] || {})   // local override wins over remote
+  // Match stats to players tolerantly — Cowork keys can drop spaces/punctuation (e.g. "maulmemaybe"
+  // for "maul me maybe", "lpfisherman" for "lp fisherman"). Normalize both sides to letters+digits.
+  const norm = k => String(k).toLowerCase().replace(/[^a-z0-9]/g, '')
+  const remoteN = {}, localN = {}
+  for (const k in remote) remoteN[norm(k)] = remote[k]
+  for (const k in local) localN[norm(k)] = local[k]
+  const statOf = k => Object.assign({}, remoteN[norm(k)] || {}, localN[norm(k)] || {})   // local override wins
   const wrCls = w => w >= 50 ? 'good' : 'bad'
   const c = v => (v == null || v === '') ? '<span class="st-pend">—</span>' : v
   const rows = roster.map(p => {
