@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.statkeys'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-06-27.enemyfix'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -2212,13 +2212,27 @@ function renderTracker(el) {
   </div>`
 }
 
-// ── Enemy Champions tab — running W/L vs each enemy champion we've faced, GROUPED BY ROLE (by the
-// champ's primary role). Full-roster games with draft data; enemy picks from captures. Per mode.
+// Manual enemy-role corrections for BACKFILLED games — op.gg doesn't give reliable enemy positions
+// for Ranked 5's, so the slot order is wrong. LIVE-captured games use the draft position instead and
+// ignore this map. champName -> role. (Update this list as more backfilled enemies need fixing.)
+const ENEMY_ROLE_FIX_NAMES = {
+  top: ['Camille', 'Yone', "K'Sante", 'Gnar'],
+  jungle: ['Aatrox', 'Ivern', 'Sylas', 'Jarvan IV'],
+  mid: ['Trundle', 'Akali', 'Ryze', 'Locke'],
+  adc: ['Kalista', 'Ezreal', 'Yasuo', 'Aphelios'],
+  support: ['Bard', 'Karma', 'Yuumi', 'Lulu'],
+}
+function enemyRoleFix() {
+  const m = {}
+  for (const role in ENEMY_ROLE_FIX_NAMES) for (const n of ENEMY_ROLE_FIX_NAMES[role]) { const id = NAME_ID[n]; if (id) m[id] = role }
+  return m
+}
+// ── Enemy Champions tab — running W/L vs each enemy champion we've faced, grouped by the role it
+// PLAYED. Live games use the draft position; backfilled games use the manual fix above. Per mode.
 function renderEnemyTab(el) {
   const modeLbl = mainTab === 'ranked5' ? "Ranked 5's" : 'Flex'
   const m = ingestGames()[mainTab === 'ranked5' ? 'ranked5' : 'flex'] || {}
-  // Bucket by the role each enemy champ actually PLAYED in our games (stored at ingest from the
-  // draft slot). Falls back to the champ's meta role for older flat-stored data.
+  const fix = enemyRoleFix()
   const byRole = { top: {}, jungle: {}, mid: {}, adc: {}, support: {}, other: {} }
   let gamesWithData = 0
   for (const g of Object.values(m)) {
@@ -2226,7 +2240,9 @@ function renderEnemyTab(el) {
     gamesWithData++
     for (const e of g.enemy) {
       const cid = (typeof e === 'object') ? e.cid : e
-      const role = (typeof e === 'object' && e.role) ? e.role : primaryRole(cid)
+      const storedRole = (typeof e === 'object' && e.role) ? e.role : null
+      // Live capture → trust the draft position; backfill → manual fix wins (op.gg slots are wrong).
+      const role = g.live ? (storedRole || fix[cid] || primaryRole(cid)) : (fix[cid] || storedRole || primaryRole(cid))
       const bucket = byRole[role] || byRole.other
       const r = bucket[cid] = bucket[cid] || { w: 0, l: 0 }; g.win ? r.w++ : r.l++
     }
@@ -3187,7 +3203,7 @@ function historyReplace(arr) {
 // 40-game window, and only admits validated Flex(440)/Ranked5(710) full-roster games, so stale
 // or mis-tagged captures (old ARAM/normal games) can never pollute it. "Reset" wipes it + sets a
 // cutoff so only games AFTER the reset count. Keyed by numeric gameId (NA1_123 and 123 dedupe).
-const GAMES_KEY = 'kqf_games_v5'   // v5: enemy champs now stored with the role they played (re-ingest)
+const GAMES_KEY = 'kqf_games_v6'   // v6: store per-game live flag (so backfills use the manual enemy-role fix)
 // Normalize a gameId for use as a UNIQUE per-game store key. Strips ONLY a leading Riot platform
 // prefix (NA1_5585… → 5585…) so a real id and its bare-number form match. Leaves synthetic Cowork
 // ids whole (opgg-2026-06-27-kaisa_rell_… stays unique — earlier this wrongly became "xerath").
@@ -3215,7 +3231,7 @@ function ingestGames() {
       // Store each enemy champ WITH the role it played (from the draft's slot order), so the Enemy
       // Champions tab groups by the role actually played in our games, not the champ's meta role.
       const enemy = (eside.picks || []).map((n, idx) => { const cid = NAME_ID[n]; return cid ? { cid, role: (eside.roles && eside.roles[idx]) || ALL_ROLES[idx] || null } : null }).filter(Boolean)
-      s[mode][k] = { win: d.result === 'win', date: d.date, picks: g.picks, bans: (g.bans && g.bans.our) || [], enemy }
+      s[mode][k] = { win: d.result === 'win', date: d.date, picks: g.picks, bans: (g.bans && g.bans.our) || [], enemy, live: !!d.live }
       seenFp.add(fp); changed = true
     }
   }
