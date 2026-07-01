@@ -346,6 +346,7 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .pb-empty{color:var(--gray-d);font-size:11px;padding-top:4px}
 .st-wrap{overflow-x:auto}
 .st-table{width:100%;border-collapse:collapse;font-size:11px;min-width:760px}
+.st-pos{background:var(--dark3);color:var(--txt);border:1px solid var(--gold-d);border-radius:4px;font-size:10px;padding:1px 3px;cursor:pointer}
 .st-table th{text-align:center;color:var(--gray-l);font-weight:600;font-size:10px;padding:4px 6px;border-bottom:1px solid var(--line)}
 .st-table td{text-align:center;padding:4px 6px;border-bottom:1px solid var(--line)}
 .st-table td.st-pl{text-align:left;font-weight:700;color:var(--gold-l)}
@@ -1502,7 +1503,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-07-01.statlabels'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-07-01.statpos'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -2334,6 +2335,9 @@ function renderPicksBansTab(el) {
 // (kqf_roster_stats, keyed by mode→player) by the Cowork browser-read — shown as "—" until set.
 function rosterStatsOverride() { try { return JSON.parse(localStorage.getItem('kqf_roster_stats')) || {} } catch { return {} } }
 let _coworkStats = null   // { flex:{nameKey:{...}}, ranked5:{...}, updated } from /api/roster-stats (Cowork)
+let _statsPos = {}        // nameKey -> chosen position on the Stats tab (for players with per-position data)
+function setStatsPos(nameKey, pos) { _statsPos[nameKey] = pos; const el = document.getElementById('roster-cards'); if (el) renderStatsTab(el) }
+window.setStatsPos = setStatsPos
 // Full, readable column names. Reliable from op.gg collapsed cards: kda/avgK/D/A/kp/csm; the rest
 // (dmg%, gold%, vs%, wards) come from expanding each match. Any field Cowork doesn't send shows "—".
 const STAT_COLS = [['kda', 'KDA'], ['avgK', 'Avg&nbsp;Kills'], ['avgD', 'Avg&nbsp;Deaths'], ['avgA', 'Avg&nbsp;Assists'], ['kp', 'Kill&nbsp;Part&nbsp;%'], ['csm', 'CS&nbsp;/&nbsp;min'], ['dmg', 'Damage&nbsp;%'], ['goldp', 'Gold&nbsp;%'], ['vsp', 'Vision&nbsp;%'], ['wards', 'Wards&nbsp;Placed']]
@@ -2353,15 +2357,30 @@ function renderStatsTab(el) {
   const statOf = k => Object.assign({}, remoteN[norm(k)] || {}, localN[norm(k)] || {})   // local override wins
   const wrCls = w => w >= 50 ? 'good' : 'bad'
   const c = v => (v == null || v === '') ? '<span class="st-pend">—</span>' : v
+  const ROLE_SET = new Set(ALL_ROLES)
   const rows = roster.map(p => {
-    const r = rec[p.name] || { g: 0, w: 0 }, wr = r.g ? Math.round(r.w / r.g * 100) : 0, s = statOf(p.name)
-    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${ROLE_LABELS[p.role] || p.role}</td><td>${r.g}</td><td class="${r.g ? wrCls(wr) : ''}">${r.g ? wr + '%' : '—'}</td>${STAT_COLS.map(([k]) => `<td>${c(s[k])}</td>`).join('')}</tr>`
+    const entry = statOf(p.name)                          // merged remote+local; per-position OR flat
+    const positions = Object.keys(entry).filter(k => ROLE_SET.has(k))
+    let s, posSel = null
+    if (positions.length) {                               // Cowork sent stats split by position
+      posSel = (_statsPos[p.name] && positions.includes(_statsPos[p.name])) ? _statsPos[p.name]
+             : positions.includes(p.role) ? p.role
+             : positions.slice().sort((a, b) => (entry[b].games || 0) - (entry[a].games || 0))[0]
+      s = entry[posSel] || {}
+    } else { s = entry }                                  // flat (single) stats
+    const rr = rec[p.name] || { g: 0, w: 0 }
+    const g = s.games != null ? s.games : rr.g            // per-position games from Cowork, else our-store overall
+    const wr = s.wr != null ? s.wr : (rr.g ? Math.round(rr.w / rr.g * 100) : 0)
+    const posCell = positions.length > 1
+      ? `<select class="st-pos" onchange="setStatsPos('${(p.name || '').replace(/'/g, "\\'")}',this.value)">${positions.map(r => `<option value="${r}" ${r === posSel ? 'selected' : ''}>${ROLE_LABELS[r] || r}</option>`).join('')}</select>`
+      : (ROLE_LABELS[posSel || p.role] || (posSel || p.role))
+    return `<tr><td class="st-pl">${p.display || p.name}</td><td>${posCell}</td><td>${g}</td><td class="${g ? wrCls(wr) : ''}">${g ? wr + '%' : '—'}</td>${STAT_COLS.map(([k]) => `<td>${c(s[k])}</td>`).join('')}</tr>`
   }).join('')
   const upd = _coworkStats && _coworkStats.updated ? ' · op.gg ' + new Date(_coworkStats.updated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
   el.innerHTML = `<div class="st-wrap">
     <div class="st-title">📈 Stats · ${modeLbl} <span class="ec-sub">our recorded games${upd}</span><span class="st-sync" title="Re-pull the latest stats Cowork pushed" onclick="syncCoworkStats()">⟳ Sync from Cowork</span></div>
     <table class="st-table"><thead><tr><th>Player</th><th>Pos</th><th>Games</th><th>Win&nbsp;Rate</th>${STAT_COLS.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-    <div class="st-note">Games &amp; win rate are from our recorded ${modeLbl} full-roster games. KDA / Avg K-D-A / CS-M / GPM / KP% / DMG% / VSPM are read from op.gg by Cowork (for our recorded games) and filled in automatically.</div>
+    <div class="st-note">From our recorded ${modeLbl} full-roster games, read off op.gg by Cowork. Players who've played more than one position have a <b>Pos</b> dropdown — switch it to see that position's stats. Anything not yet pulled shows "—".</div>
   </div>`
   if (_coworkStats == null && _companionPresent) {   // fetch Cowork stats once; refreshed on tab reopen
     _coworkStats = {}

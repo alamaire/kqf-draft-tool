@@ -80,17 +80,30 @@ Net: every sync makes the recorded games match op.gg and fills in only the stats
   - `wards` = **avg wards placed** per game (raw count, not a %)
   Don't send `gpm` (dropped) or `vspm` (not exposed). Missing fields just show "—".
 
+**Split by position.** Players flex roles, so send each player's stats **broken down by the position
+they played** — a sub-object per role (`top`/`jungle`/`mid`/`adc`/`support`), each with its own
+`games` + `wr` (win rate %) + the stat fields, computed over our recorded games **in that position**.
+The Stats tab gives those players a Pos dropdown to switch between them. If a player only ever played
+one position, you can send that single role sub-object (or a flat object — both work).
+
 ```
 POST http://localhost:5500/api/set-roster-stats
 Content-Type: application/json
 {
   "mode": "flex",            // or "ranked5"
   "stats": {
-    "monkeydadam": { "kda": 3.1, "avgK": 6.2, "avgD": 4.1, "avgA": 8.0, "csm": 7.4, "kp": 62, "dmg": 28, "goldp": 24, "vsp": 15, "wards": 12 },
-    "yoitssam":    { "kda": 2.6, "avgK": 2.4, "avgD": 5.8, "avgA": 12.4, "csm": 1.1, "kp": 64, "dmg": 9, "goldp": 15, "vsp": 30, "wards": 34 }
+    "monkeydadam": {
+      "adc": { "games": 9, "wr": 56, "kda": 3.1, "avgK": 6.2, "avgD": 4.1, "avgA": 8.0, "csm": 7.4, "kp": 62, "dmg": 28, "goldp": 24, "vsp": 15, "wards": 12 },
+      "mid": { "games": 3, "wr": 33, "kda": 2.4, "avgK": 5.0, "avgD": 5.1, "avgA": 6.2, "csm": 7.9, "kp": 58, "dmg": 26, "goldp": 23, "vsp": 14, "wards": 10 }
+    },
+    "yoitssam": {
+      "support": { "games": 12, "wr": 50, "kda": 2.6, "avgK": 2.4, "avgD": 5.8, "avgA": 12.4, "csm": 1.1, "kp": 64, "dmg": 9, "goldp": 15, "vsp": 30, "wards": 34 }
+    }
   }
 }
 ```
+Include `games` + `wr` in each position sub-object (the tab shows those per position). Roles must be
+`top`/`jungle`/`mid`/`adc`/`support` exactly.
 Keys are the **lowercase account name** (left column above, lowercased: `thedrunkofrivia`,
 `teemoboy2011`, `styiebender`, `monkeydadam`, `yoitssam`, `lp fisherman`, `maul me maybe`).
 Fields shown in the Stats tab: `kda, avgK, avgD, avgA, csm, kp, dmg, goldp, vsp, wards`. Send what op.gg
