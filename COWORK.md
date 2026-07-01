@@ -65,6 +65,13 @@ Do these in order, **incrementally** (only touch what's changed — don't redo w
 Net: every sync makes the recorded games match op.gg and fills in only the stats that are new.
 
 ## 1) Per-player Stats → POST /api/set-roster-stats
+> **NOTE (2026-07-01): stats are now PRIMARILY computed by Code from Riot's match data** (the key
+> refresh runs `refresh-roster.js`, which pulls per-position `kda/avgK/D/A/kp/csm/dmg/goldp/vsp/wards/
+> games/wr` straight from match-v5 participant data — real `visionScore`, gold/damage shares, etc.).
+> **This section is now a FALLBACK.** Only push stats when the Riot pull can't cover something:
+> games missing from Riot's match history (e.g. `opgg-*` backfills), or when Adam says the dev key's
+> been down. The `set-roster-stats` endpoint/format is unchanged; the Riot data just takes priority.
+
 **Read match-by-match. Full-roster games only. Keep Flex and Ranked 5's separate.**
 - Do NOT use op.gg's champions-page whole-queue aggregate — it includes games without our team.
 - For each player, go through their match history, keep only games where **5 of our 7 roster were on

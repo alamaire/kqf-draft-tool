@@ -111,6 +111,14 @@ async function main() {
   const buckets = {};
   const bucket = m => (buckets[m] = buckets[m] || { record: { games: 0, wins: 0 }, pools: {} });
   const queueTally = {};   // queueId -> # of full-roster games (so a new mode self-identifies)
+  // Per-position player stats from REAL match participant data → roster-stats.json (Stats tab).
+  const POS2ROLE = { TOP: 'top', JUNGLE: 'jungle', MIDDLE: 'mid', BOTTOM: 'adc', UTILITY: 'support' };
+  const statsAgg = {};   // mode -> nameKey -> role -> accumulator
+  const acc = (mode, k, role) => {
+    const mm = statsAgg[mode] = statsAgg[mode] || {};
+    const pp = mm[k] = mm[k] || {};
+    return pp[role] = pp[role] || { games: 0, wins: 0, k: 0, d: 0, a: 0, gold: 0, dmg: 0, vis: 0, wards: 0, cs: 0, mins: 0, teamK: 0, teamGold: 0, teamDmg: 0, teamVis: 0 };
+  };
   for (const id of candidates) {
     const md = await getMatch(id);
     if (!md || !md.info) continue;
@@ -131,6 +139,24 @@ async function main() {
       const pool = b.pools[k] = b.pools[k] || {};
       const c = pool[p.championId] = pool[p.championId] || { championId: p.championId, games: 0, wins: 0 };
       c.games++; if (p.win) c.wins++;
+    }
+    // Per-position player stats from real participant data (for the Stats tab), by teamPosition.
+    if (mode === 'flex' || mode === 'ranked5') {
+      const tK = team.reduce((s, p) => s + (p.kills || 0), 0);
+      const tG = team.reduce((s, p) => s + (p.goldEarned || 0), 0);
+      const tD = team.reduce((s, p) => s + (p.totalDamageDealtToChampions || 0), 0);
+      const tV = team.reduce((s, p) => s + (p.visionScore || 0), 0);
+      const durMin = (md.info.gameDuration || 0) / 60;   // match-v5 gameDuration is seconds
+      for (const p of team) {
+        const k = puuidToKey[p.puuid]; if (!k) continue;
+        const g = acc(mode, k, POS2ROLE[p.teamPosition] || 'other');
+        g.games++; if (p.win) g.wins++;
+        g.k += p.kills || 0; g.d += p.deaths || 0; g.a += p.assists || 0;
+        g.gold += p.goldEarned || 0; g.dmg += p.totalDamageDealtToChampions || 0;
+        g.vis += p.visionScore || 0; g.wards += p.wardsPlaced || 0;
+        g.cs += (p.totalMinionsKilled || 0) + (p.neutralMinionsKilled || 0); g.mins += durMin;
+        g.teamK += tK; g.teamGold += tG; g.teamDmg += tD; g.teamVis += tV;
+      }
     }
     // Bans, ordered by pickTurn (match-v5 has ban order but NOT pick order).
     const ourTeamId = team[0].teamId, theirTeamId = ourTeamId === 100 ? 200 : 100;
@@ -195,6 +221,40 @@ async function main() {
   fs.writeFileSync(OUT, 'window.ROSTER_DATA = ' + JSON.stringify(payload) + ';\n');
   for (const m of ['flex', 'ranked5', 'other', 'all'])
     console.log(`${m}: ${payload[m].record.wins}W-${payload[m].record.games - payload[m].record.wins}L of ${payload[m].record.games}`);
+
+  // ── Per-position player stats (Stats tab) from real Riot participant data → roster-stats.json.
+  // Merges: replaces each player we computed with their per-position object; leaves other players'
+  // existing (op.gg-fallback) data untouched. Shares (dmg/gold/vision %) are player ÷ team total.
+  try {
+    const STATS_OUT = path.resolve(__dirname, '..', 'roster-stats.json');
+    let existing = {}; try { existing = JSON.parse(fs.readFileSync(STATS_OUT, 'utf8')); } catch {}
+    let wrote = 0;
+    for (const mode of ['flex', 'ranked5']) {
+      existing[mode] = existing[mode] || {};
+      const agg = statsAgg[mode] || {};
+      for (const k in agg) {
+        const byRole = {};
+        for (const role in agg[k]) {
+          const g = agg[k][role]; if (!g.games) continue;
+          byRole[role] = {
+            games: g.games, wr: Math.round(g.wins / g.games * 100),
+            kda: +((g.k + g.a) / Math.max(1, g.d)).toFixed(2),
+            avgK: +(g.k / g.games).toFixed(1), avgD: +(g.d / g.games).toFixed(1), avgA: +(g.a / g.games).toFixed(1),
+            kp: g.teamK ? Math.round((g.k + g.a) / g.teamK * 100) : null,
+            csm: g.mins ? +(g.cs / g.mins).toFixed(1) : null,
+            dmg: g.teamDmg ? Math.round(g.dmg / g.teamDmg * 100) : null,
+            goldp: g.teamGold ? Math.round(g.gold / g.teamGold * 100) : null,
+            vsp: g.teamVis ? Math.round(g.vis / g.teamVis * 100) : null,
+            wards: +(g.wards / g.games).toFixed(1),
+          };
+        }
+        if (Object.keys(byRole).length) { existing[mode][k] = byRole; wrote++; }   // replace flat with per-position
+      }
+    }
+    if (wrote) { existing.updated = new Date().toISOString(); existing.source = 'riot-match-v5';
+      fs.writeFileSync(STATS_OUT, JSON.stringify(existing, null, 2));
+      console.log(`per-position stats: wrote ${wrote} player(s) to roster-stats.json (from Riot match data)`); }
+  } catch (e) { console.error('roster-stats write skipped:', e.message); }
   // Full-roster games by queueId. 440=Flex. A NEW id here = the Ranked 5's mode →
   // set RANKED5_QUEUE to it (top of this file) and re-run to split it from Flex.
   const QNAMES = { 420: 'Solo/Duo', 440: 'Flex', 400: 'Normal Draft', 430: 'Normal Blind', 490: 'Quickplay', 700: 'Clash', 0: 'Custom' };
