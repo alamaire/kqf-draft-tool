@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-07-01.keytimeout'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-07-01.keydismiss'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -1551,10 +1551,17 @@ async function saveRiotKey() {
   }
   _refreshing = true
   note.textContent = '⏳ Refreshing roster data with this key… (~1 min)'
+  const before = Date.now()
   let res = await attempt()
   if (!res.ok && res.status !== 0) { await new Promise(r => setTimeout(r, 2000)); res = await attempt() }   // one retry — clears a transient/rate-limited run
   _refreshing = false
-  if (res.ok) { note.textContent = '✓ Roster data refreshed — reloading…'; setTimeout(() => location.reload(), 900); return }
+  // The pull can succeed server-side even if the HTTP response was slow/lost — so if roster-data's
+  // timestamp actually advanced, treat it as done and auto-dismiss + reload regardless.
+  let refreshed = res.ok
+  if (!refreshed) {
+    try { const a = await (await fetch('/api/roster-age', { cache: 'no-store' })).json(); if (a && a.generated && new Date(a.generated).getTime() >= before - 5000) refreshed = true } catch {}
+  }
+  if (refreshed) { note.textContent = '✓ Roster data refreshed — reloading…'; try { localStorage.setItem('rk_dismissed', new Date().toDateString()) } catch {}; setTimeout(() => location.reload(), 800); return }
   if (res.status === 0) { note.innerHTML = "⚠ Lost the companion mid-refresh — is the <b>Start Draft Tool</b> window still open?"; return }
   note.innerHTML = `⚠ Refresh failed — sent key <code>${masked}</code>. ${res.err}<br>If that's 401/expired: open <b>developer.riotgames.com</b>, copy the CURRENT key it shows (it changes every time you reload that page), and paste it here right away.`
 }

@@ -503,6 +503,15 @@ http.createServer(async (req, res) => {
       statsPlayers: { flex: Object.keys(st.flex || {}).length, ranked5: Object.keys(st.ranked5 || {}).length }, statsUpdated: st.updated || null,
       endpoints: ['GET /api/live-drafts', 'POST /api/add-game', 'GET /api/roster-stats', 'POST /api/set-roster-stats'] });
   }
+  // Roster-data freshness — the tool checks this after a key refresh to auto-dismiss the popup even
+  // if the refresh HTTP response was slow/lost (the pull can succeed server-side either way).
+  if (url === '/api/roster-age') {
+    try {
+      const m = fs.readFileSync(path.join(ROOT, 'roster-data.js'), 'utf8').match(/"generated":\s*"([^"]+)"/);
+      const generated = m ? m[1] : null;
+      return J(res, 200, { generated, ageHours: generated ? (Date.now() - new Date(generated).getTime()) / 36e5 : null });
+    } catch { return J(res, 200, { generated: null, ageHours: null }); }
+  }
   if (req.method === 'POST' && url === '/api/set-roster-stats') {
     let body = ''; req.on('data', c => { body += c; if (body.length > 200000) req.destroy(); });
     req.on('end', () => {
