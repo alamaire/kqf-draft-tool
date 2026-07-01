@@ -72,8 +72,13 @@ Net: every sync makes the recorded games match op.gg and fills in only the stats
 - Compute Flex and Ranked 5's **separately** and POST each as its own call (`"mode":"flex"` and
   `"mode":"ranked5"`). The tool shows them on the matching main tab — never mixed.
 - Cross-reference `/api/live-drafts` for the gameIds/dates of games we've recorded.
-- Send numbers only (no `%`/units). **Send now (reliable from collapsed cards):** `kda, avgK, avgD,
-  avgA, kp, csm`. **Optional/later (need match expansion — skip for the first push):** `gpm, dmg`.
+- Send numbers only (no `%`/units). **Reliable from collapsed cards:** `kda, avgK, avgD, avgA, kp,
+  csm`. **From expanding each match:** `gpm, dmg, goldp, vsp, wards`. Field meanings:
+  - `dmg` = **damage share %** — player's damage to champions ÷ team's total (×100)
+  - `goldp` = **gold share %** — player's gold ÷ team's total (×100)
+  - `vsp` = **vision share %** — player's vision score ÷ team's total (×100)
+  - `wards` = **avg wards placed** per game (raw count, not a %)
+  - `gpm` = gold per minute
   Don't send `vspm` (not exposed). Missing fields just show "—" and can be filled in a later push.
 
 ```
@@ -82,14 +87,14 @@ Content-Type: application/json
 {
   "mode": "flex",            // or "ranked5"
   "stats": {
-    "monkeydadam": { "kda": 3.1, "avgK": 6.2, "avgD": 4.1, "avgA": 8.0, "csm": 7.4, "gpm": 410, "kp": 62, "dmg": 28, "vspm": 1.1 },
-    "yoitssam":    { "kda": 2.6, "avgK": 2.4, "avgD": 5.8, "avgA": 12.4, "csm": 1.1, "gpm": 250, "kp": 64, "dmg": 9, "vspm": 2.3 }
+    "monkeydadam": { "kda": 3.1, "avgK": 6.2, "avgD": 4.1, "avgA": 8.0, "csm": 7.4, "gpm": 410, "kp": 62, "dmg": 28, "goldp": 24, "vsp": 15, "wards": 12 },
+    "yoitssam":    { "kda": 2.6, "avgK": 2.4, "avgD": 5.8, "avgA": 12.4, "csm": 1.1, "gpm": 250, "kp": 64, "dmg": 9, "goldp": 15, "vsp": 30, "wards": 34 }
   }
 }
 ```
 Keys are the **lowercase account name** (left column above, lowercased: `thedrunkofrivia`,
 `teemoboy2011`, `styiebender`, `monkeydadam`, `yoitssam`, `lp fisherman`, `maul me maybe`).
-Fields shown in the Stats tab: `kda, avgK, avgD, avgA, csm, gpm, kp, dmg, vspm`. Send what op.gg
+Fields shown in the Stats tab: `kda, avgK, avgD, avgA, csm, gpm, kp, dmg, goldp, vsp, wards`. Send what op.gg
 shows; missing ones display as "—". POST again anytime to update (it merges by player).
 
 ## 2) Backfill a missing game → POST /api/add-game
