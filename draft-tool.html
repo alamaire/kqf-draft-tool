@@ -1501,7 +1501,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-06-27.enemyrole2'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-07-01.keytimeout'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -1540,11 +1540,14 @@ async function saveRiotKey() {
   _companionPresent = true
   const masked = v.slice(0, 11) + '…' + v.slice(-4)
   const attempt = async () => {
+    const ctrl = new AbortController()
+    const to = setTimeout(() => ctrl.abort(), 190000)   // never hang forever — the pull runs up to ~180s
     try {
-      const r = await fetch('/api/refresh-roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ key: v }) })
+      const r = await fetch('/api/refresh-roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ key: v }), signal: ctrl.signal })
       const d = await r.json().catch(() => ({}))
       return { ok: r.ok && d.ok, status: r.status, err: d.error || '' }
-    } catch (e) { return { ok: false, status: 0, err: 'lost connection to companion' } }
+    } catch (e) { return { ok: false, status: 0, err: e.name === 'AbortError' ? 'took too long — it may have finished anyway; Dismiss and reload to check' : 'lost connection to companion' } }
+    finally { clearTimeout(to) }
   }
   _refreshing = true
   note.textContent = '⏳ Refreshing roster data with this key… (~1 min)'
