@@ -344,7 +344,8 @@ textarea.hist-notes-in{width:100%;height:48px;background:var(--dark);border:1px 
 .pb-bar{height:3px;width:28px;background:var(--red);border-radius:2px;overflow:hidden;margin:1px auto 0}
 .pb-bar-w{height:100%;background:#3fb950}
 .pb-empty{color:var(--gray-d);font-size:11px;padding-top:4px}
-.st-table{width:100%;border-collapse:collapse;font-size:11px}
+.st-wrap{overflow-x:auto}
+.st-table{width:100%;border-collapse:collapse;font-size:11px;min-width:760px}
 .st-table th{text-align:center;color:var(--gray-l);font-weight:600;font-size:10px;padding:4px 6px;border-bottom:1px solid var(--line)}
 .st-table td{text-align:center;padding:4px 6px;border-bottom:1px solid var(--line)}
 .st-table td.st-pl{text-align:left;font-weight:700;color:var(--gold-l)}
@@ -1501,7 +1502,7 @@ function rosterDataAgeHours() {
   const g = window.ROSTER_DATA && window.ROSTER_DATA.generated
   return g ? (Date.now() - new Date(g).getTime()) / 36e5 : Infinity
 }
-const APP_BUILD = '2026-07-01.statcols'   // bumped on each change — confirms you're not on a cached old page
+const APP_BUILD = '2026-07-01.statlabels'   // bumped on each change — confirms you're not on a cached old page
 function openRiotKeyModal() {
   const age = rosterDataAgeHours()
   const ageTxt = age === Infinity ? 'has never been pulled' : `is ${Math.round(age)}h old`
@@ -2333,9 +2334,9 @@ function renderPicksBansTab(el) {
 // (kqf_roster_stats, keyed by mode→player) by the Cowork browser-read — shown as "—" until set.
 function rosterStatsOverride() { try { return JSON.parse(localStorage.getItem('kqf_roster_stats')) || {} } catch { return {} } }
 let _coworkStats = null   // { flex:{nameKey:{...}}, ranked5:{...}, updated } from /api/roster-stats (Cowork)
-// Reliable from op.gg collapsed cards first (kda/avgK/D/A/kp/csm); the rest (gpm, dmg%, gold%, vs%,
-// wards) come from expanding each match on op.gg. Any field Cowork doesn't send shows "—".
-const STAT_COLS = [['kda', 'KDA'], ['avgK', 'Avg&nbsp;K'], ['avgD', 'Avg&nbsp;D'], ['avgA', 'Avg&nbsp;A'], ['kp', 'KP%'], ['csm', 'CS/M'], ['gpm', 'GPM'], ['dmg', 'DMG%'], ['goldp', 'Gold%'], ['vsp', 'VS%'], ['wards', 'Wards']]
+// Full, readable column names. Reliable from op.gg collapsed cards: kda/avgK/D/A/kp/csm; the rest
+// (dmg%, gold%, vs%, wards) come from expanding each match. Any field Cowork doesn't send shows "—".
+const STAT_COLS = [['kda', 'KDA'], ['avgK', 'Avg&nbsp;Kills'], ['avgD', 'Avg&nbsp;Deaths'], ['avgA', 'Avg&nbsp;Assists'], ['kp', 'Kill&nbsp;Part&nbsp;%'], ['csm', 'CS&nbsp;/&nbsp;min'], ['dmg', 'Damage&nbsp;%'], ['goldp', 'Gold&nbsp;%'], ['vsp', 'Vision&nbsp;%'], ['wards', 'Wards&nbsp;Placed']]
 function renderStatsTab(el) {
   el.style.display = 'block'
   const mode = mainTab === 'ranked5' ? 'ranked5' : 'flex', modeLbl = mode === 'ranked5' ? "Ranked 5's" : 'Flex'
